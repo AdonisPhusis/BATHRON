@@ -186,6 +186,124 @@ This is a price signal, not a failure.
 
 ---
 
+## Why BTC Burns Are Not a One-Way Bet
+
+A common misunderstanding is that BTC burns require a long-term belief
+that M1 will trade near BTC.
+
+**This is incorrect.**
+
+In practice, BTC burns are not speculative bets.
+They are part of **arbitrage flows** across fast markets.
+
+### The Triangle of Fast Markets
+
+M1 is not priced in isolation.
+It exists inside a triangle of fast markets:
+
+```
+    BTC ↔ M1 ↔ USDC
+     \________↗
+```
+
+- **BTC/M1** (HTLC, atomic swap, OTC)
+- **M1/USDC** (CEX, DEX, OTC)
+- **BTC/USDC** (global reference market)
+
+These three markets enforce consistency without any protocol intervention.
+
+### The Arbitrage Loop (Concrete Example)
+
+Assume the following prices:
+- BTC/USDC = 50,000
+- M1/USDC = 50,200
+- M1/BTC = 1.004
+
+An arbitrageur can:
+1. Burn 1 BTC → mint 1 M1
+2. Sell 1 M1 for 50,200 USDC
+3. Buy back BTC on BTC/USDC
+
+**Risk-free profit**, minus execution costs.
+
+This arbitrage:
+- Increases M1 supply when M1 is overpriced
+- Pushes M1 price back toward BTC
+- **Requires no belief in M1 long-term value**
+
+### What If M1 Trades Below BTC?
+
+Assume:
+- BTC/USDC = 50,000
+- M1/USDC = 49,000
+- M1/BTC = 0.98
+
+**1. No Forced Redemption = No Bank Run**
+
+The protocol does not promise redemption at par.
+There is no panic loop. No one is forced to sell.
+
+**2. Arbitrage Still Exists — Just Differently**
+
+If a trader needs fast BTC settlement, they can:
+- Buy M1 cheaply (0.98 BTC)
+- Use M1 to settle in 1 minute
+- Avoid 60-minute BTC finality
+- **Save time > spread**
+
+The discount is not a failure.
+It is the **settlement fee expressed as a market price**.
+
+### Why This Is Auto-Stabilizing
+
+The system self-regulates through **depth**, not promises.
+
+As liquidity grows:
+- M1/BTC spreads tighten
+- M1/USDC mirrors BTC/USDC
+- Arbitrage becomes cheaper
+- Discounts compress naturally
+
+There is no single stabilizer. No peg defender. No treasury.
+
+Stability emerges from:
+- Multiple fast markets
+- Professional arbitrage
+- Real settlement demand
+
+### Why This Is Not Reflexive
+
+Crucially:
+- You cannot mint M1 using M1
+- You cannot exit without the market
+- You cannot lever the system
+- You cannot create circular arbitrage
+
+Every arbitrage loop ultimately references **external BTC liquidity**.
+
+This prevents:
+- Death spirals
+- Reflexive inflation
+- Self-referential leverage
+
+### Key Takeaway
+
+**BTC burns are not blind sacrifices.**
+**They are the minting leg of arbitrage strategies in fast settlement markets.**
+
+As long as:
+- Fast BTC settlement has value
+- Arbitrage opportunities exist
+- Liquidity paths are open
+
+M1 does not need belief. It needs usage.
+
+> *"The system does not rely on believers.*
+> *It relies on arbitrageurs.*
+> *And arbitrageurs don't believe — they execute."*
+
+---
+
 ## Comparison
 
 | Solution | Finality | Trustless | Capacity | Exit |
