@@ -101,6 +101,51 @@ This neutrality is intentional.
 
 ---
 
+## Why M0/M1 = 1 Is Not a Peg
+
+The equality M0/M1 = 1 is often misunderstood as a "peg".
+It is not.
+
+**It is an internal accounting identity.**
+
+M0 and M1 form a closed settlement system:
+
+- M0 is created only via BTC burn
+- M1 is created only by locking M0
+- Every M1 is always backed by exactly 1 M0
+- There is no circular path to increase supply
+
+This means:
+
+- No internal arbitrage loop
+- No reflexivity
+- No leverage
+- No inflation
+- No bank run inside the system
+
+**M0/M1 = 1 is not defended by markets or promises.**
+**It is enforced by construction.**
+
+All price discovery happens **outside** the rail (M1/BTC),
+never inside it.
+
+### Why This Matters
+
+Because the settlement layer is closed and self-collateralized,
+arbitrage inside the system is finite.
+
+**There is nothing to "attack".**
+
+- You cannot mint M1 without burning BTC
+- You cannot exit without paying the market spread
+- You cannot force redemptions
+- You cannot create a death spiral
+
+This is why M0/M1 can be strictly neutral,
+while M1/BTC is free to float.
+
+---
+
 ## Why Not a Stablecoin?
 
 | Stablecoin | Settlement Rail |
