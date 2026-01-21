@@ -1,0 +1,288 @@
+# BATHRON
+
+> *"M1 doesn't need a perfect peg. It needs a reason to exist."*
+
+BATHRON is an experimental **BTC-native settlement rail**.
+
+It provides **~1 minute trustless finality** for BTC-denominated value transfer,
+without bridges, custodians, channels, or oracles.
+
+---
+
+## What BATHRON is
+
+A **settlement infrastructure**, not a stablecoin.
+
+The value proposition is not "M1 = 1 BTC" but rather:
+> **"1-minute BTC finality without custodians"**
+
+- Trustless entry via SPV burn proof
+- ~1 minute deterministic finality
+- No channel management
+- Arbitrarily large amounts
+- Permissionless and non-custodial
+
+**M1 is a settlement asset, not a retail currency.**
+
+---
+
+## What BATHRON is NOT
+
+- Not a stablecoin
+- Not a peg promise
+- Not a guaranteed BTC exit
+- Not a wrapped BTC
+- Not a bridge back to Bitcoin
+- No yield, no treasury, no governance token
+
+If M1 trades at a discount, that's the **cost of the service**, not a failure.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BITCOIN (signet/testnet)                 │
+│                      (Security Layer)                       │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ BTC Burn (SPV-verified, ~1h)
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                          M0                                 │
+│               (Base Money - 1:1 with burned BTC)            │
+│                   Transparent, auditable                    │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ Lock/Unlock (instant, free)
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                          M1                                 │
+│                   (Settlement Token)                        │
+│             Transferable, 1-minute finality                 │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ HTLC / Atomic Swap
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    BITCOIN (mainnet)                        │
+│                    (Exit via market)                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Property | Value |
+|----------|-------|
+| **Entry** | Trustless (SPV burn proof) |
+| **Internal Transfer** | ~1 minute finality |
+| **Exit** | Market-based (HTLC, OTC) |
+| **Custodian** | None |
+| **Governance** | None (pure protocol) |
+| **Backing** | 1 M0 = 1 BTC burned (verifiable on-chain) |
+
+---
+
+## Rail Neutrality
+
+BATHRON is designed as a **neutral rail**:
+
+- **No inflation** - supply strictly limited by BTC burned
+- **No monetary policy** - no discretionary issuance
+- **No native yield** - no protocol-level rewards
+- **No privileged actors** - no favoritism
+
+The protocol does not favor savers, borrowers, validators, or liquidity providers.
+
+Any compensation comes exclusively from:
+- Market spreads
+- Services provided outside consensus
+
+This neutrality is intentional.
+
+---
+
+## Why Not a Stablecoin?
+
+| Stablecoin | Settlement Rail |
+|------------|-----------------|
+| Promises: "1 USDC = $1 always" | Promises: "1 min finality, trustless" |
+| Value = peg maintenance | Value = service utility |
+| Needs reserves/redemption | Needs usage/liquidity |
+| Can bank run | Cannot bank run (no redemption promise) |
+
+**M1 does not promise to be worth 1 BTC. It promises to settle in 1 minute.**
+
+---
+
+## The Price Mechanism
+
+### Floor (Mechanical)
+
+```
+Cost to create 1 M1 = 1 BTC (burned, irrecoverable)
+→ M1 cannot be created below cost
+→ Supply strictly limited
+→ No inflation possible (A5 invariant)
+```
+
+### Ceiling (Arbitrage)
+
+```
+If M1 > 1 BTC: Arbitrage burns BTC → sells M1 → profit
+If M1 < 1 BTC: No mechanical floor, but utility value provides economic floor
+```
+
+### Sub-Parity Is Not Failure
+
+If M1 trades at 0.97 BTC, that's a **3% fee for instant finality**.
+
+Users who value 1-min settlement more than 3% will use it.
+This is a price signal, not a failure.
+
+---
+
+## Comparison
+
+| Solution | Finality | Trustless | Capacity | Exit |
+|----------|----------|-----------|----------|------|
+| Bitcoin L1 | 60 min | Yes | Low | Native |
+| Lightning | Instant | Partial | Medium | Native |
+| wBTC | Instant | No | High | Custodian |
+| tBTC | Instant | Partial | Medium | Threshold sig |
+| **M0/M1** | **1 min** | **Yes** | **High** | **Market** |
+
+### Why Not Lightning?
+
+- Channel management overhead
+- Liquidity routing issues
+- Inbound capacity problems
+- Not suitable for large amounts
+
+### Why M0/M1?
+
+- **Truly trustless**: No custodian, no signers, no federation
+- **Simple**: Burn + SPV proof, nothing else
+- **Irreversible backing**: Can't be "unbacked"
+- **Verifiable**: Anyone can audit total supply vs total burns
+
+---
+
+## What is NOT Yet Implemented
+
+- **No HTLC / swap SDK yet**
+- **No offer discovery system** (orderbook / quotes)
+- **No dexcrow / cross-chain escrow standard**
+
+These are intentionally absent for now.
+
+The core focuses on:
+- Settlement rail validity
+- Deterministic finality
+- Clear separation between infrastructure and market
+
+Market mechanisms (SDK, DEX, clearing, escrow) must remain
+**agnostic**, **permissionless**, and **outside consensus**.
+
+---
+
+## SDK and Upper Layers (Future)
+
+An SDK may exist to:
+- Standardize M1/BTC HTLCs
+- Facilitate integration with existing systems (BasicSwap, Bisq, etc.)
+- Expose settlement and swap primitives
+
+This SDK will make **no economic assumptions**.
+It will remain optional, outside consensus, and replaceable.
+
+The rail must remain useful even if multiple competing SDKs exist.
+
+---
+
+## Who This Is For
+
+- **OTC Desks** - Large BTC trades need fast, final settlement
+- **Cross-venue Arbitrage** - Profit windows close in seconds
+- **Market Makers** - Inventory rebalancing requires speed
+- **Atomic Swaps** - HTLC timeouts constrained by BTC finality
+- **High-value Payments** - $1M+ transfers can't wait 1 hour
+
+---
+
+## Who This Is NOT For (Yet)
+
+- Retail users
+- Yield seekers
+- Stablecoin users
+- DeFi composability
+- UI-first workflows
+
+Those layers belong **above** the settlement rail.
+
+---
+
+## Current Status
+
+- Bitcoin signet integration
+- BATHRON testnet running
+- SPV burn detection active
+- Deterministic finality via quorum / DMM
+- No SDK yet
+- No production guarantees
+
+---
+
+## Security & Risk
+
+- BTC burns are irreversible
+- Liquidity exits are not guaranteed
+- This software is experimental
+- Testnet / signet only
+
+**Do not use with funds you cannot afford to lose.**
+
+---
+
+## FAQ
+
+**Q: What if M1 trades at 0.90 BTC?**
+
+A: Then the "cost" of using the settlement rail is 10%. Users who value 1-min finality more than 10% will still use it. This is a price signal, not a failure.
+
+**Q: Can the protocol force M1 = 1 BTC?**
+
+A: No, and it shouldn't. Promising a peg creates bank run risk. The protocol promises finality, not price.
+
+**Q: Who would burn BTC knowing they might not get 1 BTC back?**
+
+A: Someone who values the SERVICE more than the potential discount. OTC desks paying 0.1% fee for instant settlement is normal.
+
+**Q: What prevents M1 going to zero?**
+
+A: Utility. As long as 1-min trustless settlement has value, M1 has value.
+
+**Q: Is this just a worse Lightning?**
+
+A: Different tradeoffs. Lightning = instant but channel management. M0/M1 = 1 minute but no channels, higher capacity, simpler for large amounts.
+
+---
+
+## Contact
+
+Experimental project. Technical discussions welcome.
+
+- **Matrix**: [@adonisphusis:matrix.org](https://matrix.to/#/@adonisphusis:matrix.org)
+
+If you are working on:
+- HTLC protocols
+- Atomic swaps
+- Settlement infrastructure
+- BasicSwap / Bisq / Komodo-style systems
+
+feel free to reach out.
+
+---
+
+## License
+
+MIT License - See [COPYING](COPYING)
