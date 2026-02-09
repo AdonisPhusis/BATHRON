@@ -1,5 +1,5 @@
 {
-  "piv2_rpc": {
+  "bathron_rpc": {
     "host": "127.0.0.1",
     "port": 27170,
     "user": "testuser",

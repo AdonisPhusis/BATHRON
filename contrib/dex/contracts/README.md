@@ -1,30 +1,30 @@
-# PIV2 HTLC Smart Contracts
+# BATHRON HTLC Smart Contracts
 
-Smart contracts for cross-chain atomic swaps between PIV2 (KPIV) and EVM chains (Polygon, Ethereum, etc.).
+Smart contracts for cross-chain atomic swaps between BATHRON (M1) and EVM chains (Base, Ethereum, etc.).
 
 ## Architecture
 
 ```
-PIV2 Chain                              EVM Chain (Polygon/ETH)
-───────────                              ──────────────────────
+BATHRON Chain                            EVM Chain (Base/ETH)
+────────────                             ──────────────────────
 
-LOT (HTLC script)                        PIV2_HTLC.sol
+LOT (HTLC script)                        BATHRON_HTLC.sol
 ├── hashlock H                           ├── hashlock H (same!)
 ├── taker_pubkey                         ├── lp address
 ├── lp_pubkey                            ├── taker address
 └── expiry (CLTV)                        └── timelock
 
-Taker reveals S on PIV2 ──────────────► LP uses S to claim on EVM
-     (claims KPIV)                            (claims USDC/tokens)
+Taker reveals S on BATHRON ──────────► LP uses S to claim on EVM
+     (claims M1)                            (claims USDC/tokens)
 ```
 
 ## Flow
 
 1. **Taker** generates secret `S`, computes `H = SHA256(S)`
-2. **LP** creates LOT on PIV2 with hashlock `H`
+2. **LP** creates LOT on BATHRON with hashlock `H`
 3. **Taker** locks USDC/tokens on EVM with same hashlock `H`
-4. **Taker** reveals `S` on PIV2 to claim KPIV
-5. **LP** (or anyone) sees `S` in PIV2 tx, uses it to claim on EVM
+4. **Taker** reveals `S` on BATHRON to claim M1
+5. **LP** (or anyone) sees `S` in BATHRON tx, uses it to claim on EVM
 6. If no claim before timeout, **Taker** can refund on EVM
 
 ## Installation
@@ -58,22 +58,18 @@ Create `.env` file:
 PRIVATE_KEY=your_private_key_here
 
 # RPC URLs (optional, has defaults)
-POLYGON_RPC_URL=https://polygon-rpc.com
-POLYGON_AMOY_RPC_URL=https://rpc-amoy.polygon.technology
+BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 
 # For contract verification (optional)
-POLYGONSCAN_API_KEY=your_api_key
+BASESCAN_API_KEY=your_api_key
 ETHERSCAN_API_KEY=your_api_key
 ```
 
 ### 2. Deploy
 
 ```bash
-# Deploy to Polygon Amoy testnet
-npm run deploy:polygon-amoy
-
-# Deploy to Polygon mainnet
-npm run deploy:polygon
+# Deploy to Base Sepolia testnet
+npm run deploy:sepolia
 
 # Deploy to local hardhat node
 npm run deploy:localhost
@@ -82,7 +78,7 @@ npm run deploy:localhost
 ### 3. Verify (optional)
 
 ```bash
-npx hardhat verify --network polygon_amoy <CONTRACT_ADDRESS>
+npx hardhat verify --network sepolia <CONTRACT_ADDRESS>
 ```
 
 ## Contract Interface
@@ -95,12 +91,12 @@ function lock(
     address lp,          // LP address (receives on claim)
     address token,       // ERC20 token address
     uint256 amount,      // Amount to lock
-    bytes32 hashlock,    // SHA256(secret) - same as PIV2
+    bytes32 hashlock,    // SHA256(secret) - same as BATHRON
     uint256 timelock     // Unix timestamp for refund
 ) external;
 ```
 
-### Lock Native ETH/MATIC
+### Lock Native ETH
 
 ```solidity
 function lockETH(
@@ -143,16 +139,16 @@ function computeSwapId(address lp, address taker, bytes32 hashlock, uint256 nonc
 
 - **MIN_TIMELOCK**: 1 hour (prevents griefing)
 - **MAX_TIMELOCK**: 30 days (prevents forever-lock)
-- **Important**: EVM timelock MUST be shorter than PIV2 expiry!
+- **Important**: EVM timelock MUST be shorter than BATHRON expiry!
 
 ### Why?
 
-If Taker reveals `S` on PIV2 just before PIV2 expiry:
-- Taker claims KPIV ✓
+If Taker reveals `S` on BATHRON just before BATHRON expiry:
+- Taker claims M1
 - LP must claim on EVM before EVM timeout
-- If EVM timeout ≥ PIV2 expiry → LP might not have time → LP loses!
+- If EVM timeout >= BATHRON expiry -> LP might not have time -> LP loses!
 
-**Rule**: `timelock_evm = expiry_piv2 - safety_margin`
+**Rule**: `timelock_evm = expiry_bathron - safety_margin`
 
 Recommended: 1-2 days margin.
 
@@ -160,13 +156,13 @@ Recommended: 1-2 days margin.
 
 This contract uses **SHA256** (not keccak256) for hashlock verification.
 
-Why? PIV2 (Bitcoin-like) uses SHA256 in scripts. Using the same hash function ensures compatibility.
+Why? BATHRON (Bitcoin-like) uses SHA256 in scripts. Using the same hash function ensures compatibility.
 
 ```solidity
 // In contract:
 sha256(abi.encodePacked(preimage)) == hashlock
 
-// In PIV2 script:
+// In BATHRON script:
 OP_SHA256 <H> OP_EQUALVERIFY
 ```
 
@@ -174,20 +170,17 @@ OP_SHA256 <H> OP_EQUALVERIFY
 
 | Network | Address | Explorer |
 |---------|---------|----------|
-| Polygon Mainnet | `0x3F1843Bc98C526542d6112448842718adc13fA5F` | [Polygonscan](https://polygonscan.com/address/0x3F1843Bc98C526542d6112448842718adc13fA5F) |
-| Polygon Amoy | - | - |
+| Base Sepolia | `0x2493EaaaBa6B129962c8967AaEE6bF11D0277756` | [Basescan](https://sepolia.basescan.org/address/0x2493EaaaBa6B129962c8967AaEE6bF11D0277756) |
 
-## Integration with PIV2
+## Integration with BATHRON
 
-See `doc/blueprints/todo/21-PIV2-DEX-HTLC-PURE.md` for the complete protocol specification.
-
-### Python Example (dexd)
+### Python Example
 
 ```python
 from web3 import Web3
 
-# Connect to Polygon
-w3 = Web3(Web3.HTTPProvider('https://polygon-rpc.com'))
+# Connect to Base
+w3 = Web3(Web3.HTTPProvider('https://sepolia.base.org'))
 htlc = w3.eth.contract(address=HTLC_ADDRESS, abi=HTLC_ABI)
 
 # Lock USDC
@@ -197,11 +190,11 @@ tx = htlc.functions.lock(
     lp_address,
     usdc_address,
     amount,
-    hashlock,  # Same H as PIV2 LOT
+    hashlock,  # Same H as BATHRON LOT
     int(time.time()) + 86400  # +1 day
 ).build_transaction({...})
 
-# Claim with preimage (after seeing it on PIV2)
+# Claim with preimage (after seeing it on BATHRON)
 tx = htlc.functions.claim(swap_id, preimage).build_transaction({...})
 ```
 

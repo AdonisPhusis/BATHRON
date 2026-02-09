@@ -402,7 +402,7 @@ class BATHRONExplorer
         // NOTE: genesis_burns_spv.json removed - daemon-only flow uses burnclaimdb
         $paths = [
             '/home/ubuntu/explorer/genesis_burns.json',             // Explorer dir (deployed)
-            '/home/ubuntu/.piv2/testnet5/genesis_burns.json',      // Daemon datadir
+            '/home/ubuntu/.bathron/testnet5/genesis_burns.json',    // Daemon datadir
             '/home/ubuntu/genesis_burns.json',                      // Server deployment
             __DIR__ . '/genesis_burns.json',                        // Same dir as explorer
             __DIR__ . '/../../contrib/testnet/genesis_burns.json',

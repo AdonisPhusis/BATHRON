@@ -1,5 +1,5 @@
 extends Node
-## PIV2 RPC Client - Thin client for piv2d daemon
+## BATHRON RPC Client - Thin client for bathrond daemon
 ## NO wallet.dat, NO private keys - just RPC calls
 
 signal connected
@@ -32,8 +32,8 @@ func _ready() -> void:
 func _load_cookie_auth() -> void:
 	## Load .cookie file for automatic authentication (localhost only)
 	var cookie_paths := [
-		OS.get_environment("HOME") + "/.piv2/.cookie",
-		OS.get_environment("HOME") + "/.piv2/testnet5/.cookie",
+		OS.get_environment("HOME") + "/.bathron/.cookie",
+		OS.get_environment("HOME") + "/.bathron/testnet5/.cookie",
 	]
 
 	for path in cookie_paths:

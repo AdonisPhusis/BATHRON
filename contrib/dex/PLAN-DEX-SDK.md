@@ -8,7 +8,7 @@
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │   ┌──────────────────┐      ┌──────────────────┐      ┌──────────────┐   │
-│   │   DEX Website    │      │    SDK Server    │      │   piv2d      │   │
+│   │   DEX Website    │      │    SDK Server    │      │   bathrond      │   │
 │   │   (Port 3002)    │◄────►│   (Port 8080)    │◄────►│   (RPC)      │   │
 │   │   PHP/HTML/JS    │      │   Python Flask   │      │   Port 27170 │   │
 │   └────────┬─────────┘      └────────┬─────────┘      └──────────────┘   │
@@ -48,10 +48,10 @@
 Le SDK expose une API REST pour le DEX frontend:
 
 ```
-GET  /api/lots              → Récupère les LOTs depuis piv2d (lot_list)
+GET  /api/lots              → Récupère les LOTs depuis bathrond (lot_list)
 GET  /api/lot/<lot_id>      → Détails d'un LOT (lot_get)
 GET  /api/orderbook         → Orderbook formaté (asks/bids groupés par prix)
-GET  /api/swap/<hashlock>   → État d'un swap (PIV2 + Polygon)
+GET  /api/swap/<hashlock>   → État d'un swap (BATHRON + Polygon)
 POST /api/register_swap     → Enregistre un swap (hashlock + taker_addr)
 GET  /api/price             → Prix KPIV/USDC spot (de lot_list)
 ```
@@ -60,7 +60,7 @@ GET  /api/price             → Prix KPIV/USDC spot (de lot_list)
 
 ```
 ┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐
-│   DEX UI   │────►│ SDK Server │────►│  piv2-cli  │────►│   piv2d    │
+│   DEX UI   │────►│ SDK Server │────►│  bathron-cli  │────►│   bathrond    │
 │            │◄────│            │◄────│            │◄────│            │
 └────────────┘     └────────────┘     └────────────┘     └────────────┘
       │                  │
@@ -78,10 +78,10 @@ GET  /api/price             → Prix KPIV/USDC spot (de lot_list)
 
 ```
 162.19.251.75:/home/ubuntu/
-├── PIV2-Core/                    # Node + binaries (existant)
+├── BATHRON-Core/                    # Node + binaries (existant)
 │   └── src/
-│       ├── piv2d
-│       └── piv2-cli
+│       ├── bathrond
+│       └── bathron-cli
 │
 ├── dex-demo/                     # Site DEX (NOUVEAU)
 │   ├── index.php                 # Router principal
@@ -137,7 +137,7 @@ GET  /api/price             → Prix KPIV/USDC spot (de lot_list)
 │  │  0.0490   1,000   4,550  │    │  │ 100                      │  │   │
 │  │                           │    │  └──────────────────────────┘  │   │
 │  │  ────────────────────────│    │                                 │   │
-│  │  Best Ask: 0.0502 USDC    │    │  Your PIV2 Address:            │   │
+│  │  Best Ask: 0.0502 USDC    │    │  Your BATHRON Address:            │   │
 │  │  Best Bid: 0.0498 USDC    │    │  ┌──────────────────────────┐  │   │
 │  │  24h Volume: 15,420 KPIV  │    │  │ y7XRqXgz1d8ELErDxt...   │  │   │
 │  └───────────────────────────┘    │  └──────────────────────────┘  │   │
@@ -248,7 +248,7 @@ class SecretVault {
 
 ## 5. Flux ASK - 2-HTLC Trustless (Retail achète KPIV)
 
-**MODÈLE: 2-HTLC (Polygon USDC + PIV2 KPIV)**
+**MODÈLE: 2-HTLC (Polygon USDC + BATHRON KPIV)**
 
 Ce modèle est **trustless des deux côtés**:
 - Retail génère S, donc contrôle le timing
@@ -257,7 +257,7 @@ Ce modèle est **trustless des deux côtés**:
 
 ```
 ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐
-│   Retail   │   │  Polygon   │   │  SDK API   │   │    PIV2    │   │    LP      │
+│   Retail   │   │  Polygon   │   │  SDK API   │   │    BATHRON    │   │    LP      │
 │   Browser  │   │   HTLC     │   │            │   │   HTLC     │   │  Watcher   │
 └─────┬──────┘   └─────┬──────┘   └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
       │                │                │                │                │
@@ -288,13 +288,13 @@ Ce modèle est **trustless des deux côtés**:
       │ (sees KPIV HTLC in orderbook)  │                │                │
       │                │                │                │                │
       │ 6. Retail claims KPIV HTLC     │                │                │
-      │    (reveals S on PIV2 chain)   │                │                │
+      │    (reveals S on BATHRON chain)   │                │                │
       │────────────────────────────────────────────────►│                │
       │                │                │                │ S visible      │
       │                │                │                │ on-chain       │
       │                │                │                │───────────────►│
       │                │                │                │                │
-      │                │ 7. LP extracts S from PIV2 claim tx            │
+      │                │ 7. LP extracts S from BATHRON claim tx            │
       │                │◄──────────────────────────────────────────────┤
       │                │                │                │                │
       │                │ 8. LP claims USDC with S       │                │
@@ -320,7 +320,7 @@ Si Retail ne claim pas, les deux HTLCs expirent et les fonds sont refundés.
 
 ### 5.2 États du Swap
 
-| État | Polygon USDC | PIV2 KPIV | Action |
+| État | Polygon USDC | BATHRON KPIV | Action |
 |------|--------------|-----------|--------|
 | REGISTERED | - | - | Retail a enregistré H + addr |
 | USDC_LOCKED | Locked | - | LP doit créer KPIV HTLC |
@@ -337,7 +337,7 @@ Si Retail ne claim pas, les deux HTLCs expirent et les fonds sont refundés.
 | Retail lock USDC, LP ne répond pas | USDC refund après 4h | Timelock |
 | LP lock KPIV, Retail ne claim pas | KPIV refund après 2h | Timelock |
 | Retail claim KPIV mais LP offline | LP peut claim USDC plus tard | S on-chain |
-| Double-spend attempt | Confirmations requises | 6 blocks PIV2 |
+| Double-spend attempt | Confirmations requises | 6 blocks BATHRON |
 
 ---
 
@@ -375,13 +375,13 @@ def get_orderbook():
         "spread_pct": 0.80
     }
     """
-    lots = piv2_rpc('lot_list')
+    lots = bathron_rpc('lot_list')
     return jsonify(format_orderbook(lots, 'KPIV/USDC'))
 
 @app.route('/api/swap/<hashlock>')
 def get_swap_status(hashlock):
     """
-    Returns unified swap state (PIV2 + Polygon)
+    Returns unified swap state (BATHRON + Polygon)
 
     Response:
     {
@@ -398,7 +398,7 @@ def get_swap_status(hashlock):
             "refunded": false
         },
 
-        "piv2": {
+        "bathron": {
             "kpiv_sent": true,
             "amount_kpiv": 200,
             "tx_hash": "abc123def...",
@@ -428,7 +428,7 @@ def register_swap():
     return jsonify({"success": True, "swap_id": data['hashlock'][:16]})
 ```
 
-### 6.2 Communication avec piv2d
+### 6.2 Communication avec bathrond
 
 ```python
 # Dans server.py
@@ -436,20 +436,20 @@ def register_swap():
 import subprocess
 import json
 
-PIV2_CLI = "/home/ubuntu/PIV2-Core/src/piv2-cli"
+BATHRON_CLI = "/home/ubuntu/BATHRON-Core/src/bathron-cli"
 
-def piv2_rpc(method, *args):
-    """Execute piv2-cli RPC call"""
-    cmd = [PIV2_CLI, "-testnet", method] + list(args)
+def bathron_rpc(method, *args):
+    """Execute bathron-cli RPC call"""
+    cmd = [BATHRON_CLI, "-testnet", method] + list(args)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise Exception(f"RPC error: {result.stderr}")
     return json.loads(result.stdout)
 
 # Usage examples:
-# lots = piv2_rpc('lot_list')
-# balance = piv2_rpc('getbalances')
-# tx = piv2_rpc('sendtoaddress', taker_addr, str(amount))
+# lots = bathron_rpc('lot_list')
+# balance = bathron_rpc('getbalances')
+# tx = bathron_rpc('sendtoaddress', taker_addr, str(amount))
 ```
 
 ---

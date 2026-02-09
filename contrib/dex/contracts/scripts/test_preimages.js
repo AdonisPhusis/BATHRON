@@ -6,10 +6,10 @@ async function main() {
     // The hashlock as stored on Polygon
     const H_stored = "0xbebed079ad8ca9c3388a225e29695d8cc1d50f5096a53f5f788b634660d87f76";
     
-    // PIV2 display format
+    // BATHRON display format
     const S_display = "0xfbd56513c9d23b23998c7ef03f9a1e48f9ede96bdf2046e1187c7a09c2218991";
     
-    // PIV2 internal (reversed)
+    // BATHRON internal (reversed)
     const S_internal = "0x918921c2097a7c18e14620df6be9edf9481e9a3ff07e8c99233bd2c91365d5fb";
     
     console.log("=== Testing preimages ===");
@@ -34,7 +34,7 @@ async function main() {
     
     // Try claim simulation
     console.log("\n=== Simulation ===");
-    const htlc = await ethers.getContractAt("PIV2_HTLC", HTLC_ADDRESS);
+    const htlc = await ethers.getContractAt("BATHRON_HTLC", HTLC_ADDRESS);
     
     try {
         // Simulate with S_display

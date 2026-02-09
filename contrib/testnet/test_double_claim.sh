@@ -53,7 +53,7 @@ echo ""
 
 # Test 1: Check if burn is already tracked
 echo -e "${YELLOW}[TEST 1] Check burnclaimdb status...${NC}"
-$SSH ubuntu@$SEED_IP "~/piv2-cli -testnet getbtcburnstats" 2>/dev/null || echo "  (RPC may not exist)"
+$SSH ubuntu@$SEED_IP "~/bathron-cli -testnet getbtcburnstats" 2>/dev/null || echo "  (RPC may not exist)"
 echo ""
 
 # Test 2: Try to get the raw tx and proof from BTC
@@ -73,7 +73,7 @@ echo ""
 
 # We need merkle proof - let's try via RPC on seed
 RESULT=$($SSH ubuntu@$SEED_IP "
-    CLI=~/piv2-cli
+    CLI=~/bathron-cli
 
     echo '=== Checking if burn already exists in settlement ==='
     # Check settlement state
@@ -109,7 +109,7 @@ echo "$RESULT"
 echo ""
 echo -e "${YELLOW}[TEST 4] Verifying UTXO-level protection...${NC}"
 $SSH ubuntu@$SEED_IP "
-    CLI=~/piv2-cli
+    CLI=~/bathron-cli
 
     # Check if the destination address has the expected balance
     echo 'Checking destination address balance...'

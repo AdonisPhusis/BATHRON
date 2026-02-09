@@ -23,7 +23,7 @@ DAT=~/.bathron/testnet5
 echo "Before wipe:"
 ls -la $DAT/ 2>/dev/null | head -10
 
-# Keep: wallet.dat, piv2.conf, btcspv/, pivkey/
+# Keep: wallet.dat, bathron.conf, btcspv/
 # Wipe: blocks, chainstate, evodb, etc.
 rm -rf $DAT/blocks $DAT/chainstate $DAT/index
 rm -rf $DAT/evodb $DAT/llmq $DAT/settlementdb $DAT/burnclaimdb

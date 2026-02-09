@@ -1,7 +1,7 @@
 {
-  "name": "piv2-htlc-contracts",
+  "name": "bathron-htlc-contracts",
   "version": "1.0.0",
-  "description": "PIV2 HTLC Smart Contracts for cross-chain atomic swaps",
+  "description": "BATHRON HTLC Smart Contracts for cross-chain atomic swaps",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
@@ -18,12 +18,11 @@
   "keywords": [
     "htlc",
     "atomic-swap",
-    "piv2",
-    "pivx",
+    "bathron",
     "cross-chain",
     "defi"
   ],
-  "author": "PIV2 Team",
+  "author": "BATHRON",
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",

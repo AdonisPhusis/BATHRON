@@ -4,7 +4,7 @@ async function main() {
     const HTLC_ADDRESS = "0x3F1843Bc98C526542d6112448842718adc13fA5F";
     const SWAP_ID = "0xbebed079ad8ca9c3388a225e29695d8cc1d50f5096a53f5f788b634660d87f76";
     
-    const htlc = await ethers.getContractAt("PIV2_HTLC", HTLC_ADDRESS);
+    const htlc = await ethers.getContractAt("BATHRON_HTLC", HTLC_ADDRESS);
     
     const swap = await htlc.swaps(SWAP_ID);
     console.log("Swap data for swapId:", SWAP_ID);

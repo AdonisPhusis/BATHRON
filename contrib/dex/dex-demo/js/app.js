@@ -4,7 +4,7 @@
  * Orchestrates the 2-HTLC atomic swap flow:
  * 1. Retail generates secret S, hashlock H
  * 2. Retail locks USDC on Polygon
- * 3. LP creates KPIV HTLC on PIV2
+ * 3. LP creates KPIV HTLC on BATHRON
  * 4. Retail claims KPIV (reveals S)
  * 5. LP claims USDC with S
  */
@@ -25,7 +25,7 @@ const CONFIG = {
     SWAP_STATUS_REFRESH_MS: 5000, // 5 seconds
 
     // Local storage keys
-    STORAGE_PIV2_ADDRESS: 'kpiv_dex_piv2_address',
+    STORAGE_BATHRON_ADDRESS: 'kpiv_dex_bathron_address',
     STORAGE_ACTIVE_SWAPS: 'kpiv_dex_active_swaps'
 };
 
@@ -145,8 +145,8 @@ async function connectWallet() {
         State.walletConnected = true;
         updateWalletUI();
 
-        // Load saved PIV2 address
-        loadPiv2Address();
+        // Load saved BATHRON address
+        loadBathronAddress();
 
         // Start refresh intervals
         startRefreshIntervals();
@@ -331,14 +331,14 @@ function updatePreview() {
 
         // Check if user has enough balance
         const hasBalance = parseFloat(State.usdcBalance) >= totalUsdc;
-        const hasPiv2Addr = document.getElementById('piv2-address').value.length > 0;
+        const hasBathronAddr = document.getElementById('bathron-address').value.length > 0;
 
-        swapBtn.disabled = !hasBalance || !hasPiv2Addr;
+        swapBtn.disabled = !hasBalance || !hasBathronAddr;
 
         if (!hasBalance) {
             swapBtn.querySelector('.btn-text').textContent = 'Insufficient USDC';
-        } else if (!hasPiv2Addr) {
-            swapBtn.querySelector('.btn-text').textContent = 'Enter PIV2 Address';
+        } else if (!hasBathronAddr) {
+            swapBtn.querySelector('.btn-text').textContent = 'Enter BATHRON Address';
         } else {
             swapBtn.querySelector('.btn-text').textContent = 'Lock USDC';
         }
@@ -358,21 +358,21 @@ function setAmount(amount) {
 
 async function initiateSwap() {
     const amountInput = document.getElementById('amount-input');
-    const piv2Address = document.getElementById('piv2-address').value.trim();
+    const bathronAddress = document.getElementById('bathron-address').value.trim();
 
     const kpivAmount = parseFloat(amountInput.value);
     const price = State.selectedLot?.price || State.orderbook?.best_ask;
     const usdcAmount = kpivAmount * price;
     const lotId = State.selectedLot?.lotId || State.orderbook?.asks?.[0]?.lot_id;
 
-    if (!kpivAmount || !price || !piv2Address) {
+    if (!kpivAmount || !price || !bathronAddress) {
         showStatus('error', 'Please fill all fields');
         return;
     }
 
-    // Validate PIV2 address
-    if (!piv2Address.match(/^[xy][a-km-zA-HJ-NP-Z1-9]{25,34}$/)) {
-        showStatus('error', 'Invalid PIV2 address format');
+    // Validate BATHRON address
+    if (!bathronAddress.match(/^[xy][a-km-zA-HJ-NP-Z1-9]{25,34}$/)) {
+        showStatus('error', 'Invalid BATHRON address format');
         return;
     }
 
@@ -388,7 +388,7 @@ async function initiateSwap() {
             kpivAmount,
             usdcAmount,
             price,
-            piv2Address,
+            bathronAddress,
             lotId,
             lpAddress: CONFIG.LP_POLYGON_ADDRESS,
             status: 'PENDING'
@@ -401,7 +401,7 @@ async function initiateSwap() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 hashlock: hashlock,
-                taker_kpiv_addr: piv2Address,
+                taker_kpiv_addr: bathronAddress,
                 lot_id: lotId
             })
         });
@@ -431,7 +431,7 @@ async function initiateSwap() {
             kpivAmount,
             usdcAmount,
             price,
-            piv2Address,
+            bathronAddress,
             status: 'USDC_LOCKED',
             createdAt: Date.now()
         };
@@ -519,7 +519,7 @@ async function loadSwaps() {
             // Check Polygon HTLC status
             const htlcState = await HTLC.getSwap(swap.swapId);
 
-            // Check if KPIV HTLC exists on PIV2 chain
+            // Check if KPIV HTLC exists on BATHRON chain
             let kpivHtlcFound = false;
             let kpivHtlc = null;
             try {
@@ -550,7 +550,7 @@ async function loadSwaps() {
                     showSwapStatus('success', 'USDC refunded automatically!');
                 }
             } else if (kpivHtlcFound && kpivHtlc) {
-                // KPIV HTLC exists on PIV2 chain
+                // KPIV HTLC exists on BATHRON chain
                 if (kpivHtlc.status === 'claimed') {
                     swap.status = 'COMPLETED';
                 } else if (kpivHtlc.status === 'locked') {
@@ -677,8 +677,8 @@ function renderSwapCard(swap, isActive) {
                     <span class="value">${swap.kpivAmount} KPIV</span>
                 </div>
                 <div class="swap-row">
-                    <span class="label">PIV2 Address:</span>
-                    <span class="value small">${swap.piv2Address.slice(0, 12)}...</span>
+                    <span class="label">BATHRON Address:</span>
+                    <span class="value small">${swap.bathronAddress.slice(0, 12)}...</span>
                 </div>
                 ${isActive ? `
                     <div class="swap-row">
@@ -900,19 +900,19 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
 });
 
 // =============================================================================
-// PIV2 ADDRESS PERSISTENCE
+// BATHRON ADDRESS PERSISTENCE
 // =============================================================================
 
-function savePiv2Address() {
-    const address = document.getElementById('piv2-address').value;
-    localStorage.setItem(CONFIG.STORAGE_PIV2_ADDRESS, address);
+function saveBathronAddress() {
+    const address = document.getElementById('bathron-address').value;
+    localStorage.setItem(CONFIG.STORAGE_BATHRON_ADDRESS, address);
     updatePreview();
 }
 
-function loadPiv2Address() {
-    const saved = localStorage.getItem(CONFIG.STORAGE_PIV2_ADDRESS);
+function loadBathronAddress() {
+    const saved = localStorage.getItem(CONFIG.STORAGE_BATHRON_ADDRESS);
     if (saved) {
-        document.getElementById('piv2-address').value = saved;
+        document.getElementById('bathron-address').value = saved;
     }
 }
 
@@ -995,7 +995,7 @@ async function recoverSwaps() {
                     kpivAmount: sdkSwap.kpiv_amount || secretData.metadata?.kpivAmount || 0,
                     usdcAmount: secretData.metadata?.usdcAmount || 0,
                     price: secretData.metadata?.price || 0.05,
-                    piv2Address: sdkSwap.taker_kpiv_addr,
+                    bathronAddress: sdkSwap.taker_kpiv_addr,
                     status: sdkSwap.kpiv_sent ? 'KPIV_LOCKED' : 'USDC_LOCKED',
                     createdAt: sdkSwap.registered_at * 1000
                 };
@@ -1082,7 +1082,7 @@ window.refreshOrderbook = refreshOrderbook;
 window.initiateSwap = initiateSwap;
 window.setAmount = setAmount;
 window.selectLot = selectLot;
-window.savePiv2Address = savePiv2Address;
+window.saveBathronAddress = saveBathronAddress;
 window.loadSwaps = loadSwaps;
 window.claimKpiv = claimKpiv;
 window.refundUsdc = refundUsdc;

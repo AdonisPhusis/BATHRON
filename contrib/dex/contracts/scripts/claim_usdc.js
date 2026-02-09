@@ -3,7 +3,7 @@ const { ethers } = require("hardhat");
 async function main() {
     const HTLC = "0x3F1843Bc98C526542d6112448842718adc13fA5F";
     
-    // EVM format (reversed from PIV2)
+    // EVM format (reversed from BATHRON)
     const swapId = "0x19b0345015db86ca068984e1ff73632755b20a87f89a979fa50f924d42892269";
     const preimage = "0xa97290f324814a7fbc06d3230ac3ecff6c4eb3f00b1ab81a1f17012ea25f3343";
     
@@ -21,7 +21,7 @@ async function main() {
         return;
     }
     
-    const htlc = await ethers.getContractAt("PIV2_HTLC", HTLC);
+    const htlc = await ethers.getContractAt("BATHRON_HTLC", HTLC);
     const [signer] = await ethers.getSigners();
     
     console.log("\nClaiming from:", signer.address);

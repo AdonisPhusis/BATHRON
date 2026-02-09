@@ -146,10 +146,10 @@
                             </div>
                         </div>
 
-                        <!-- PIV2 Address -->
+                        <!-- BATHRON Address -->
                         <div class="input-group">
-                            <label>Your PIV2 Address (receive KPIV here)</label>
-                            <input type="text" id="piv2-address" placeholder="y..." oninput="savePiv2Address()">
+                            <label>Your BATHRON Address (receive KPIV here)</label>
+                            <input type="text" id="bathron-address" placeholder="y..." oninput="saveBathronAddress()">
                             <small class="hint">Testnet address starting with x or y</small>
                         </div>
 
@@ -193,7 +193,7 @@
                             <li><strong>Generate Secret:</strong> A random secret (S) is created locally, hashlock H=SHA256(S)</li>
                             <li><strong>Lock USDC:</strong> Your USDC is locked in an HTLC on Polygon (4h timelock)</li>
                             <li><strong>LP Locks KPIV:</strong> LP detects your lock and creates a KPIV HTLC with same H (2h timelock)</li>
-                            <li><strong>Claim KPIV:</strong> You claim KPIV by revealing S on the PIV2 chain</li>
+                            <li><strong>Claim KPIV:</strong> You claim KPIV by revealing S on the BATHRON chain</li>
                             <li><strong>LP Claims USDC:</strong> LP extracts S from your claim TX and claims your USDC</li>
                         </ol>
                         <p class="security-note">🔐 Trustless: Your secret S controls both HTLCs. Neither party can grief the other.</p>
@@ -222,7 +222,7 @@
     <!-- Footer -->
     <footer>
         <div class="footer-content">
-            <span>KPIV DEX Demo | Powered by PIVX 2.0</span>
+            <span>BATHRON DEX Demo | Powered by BATHRON</span>
             <span class="separator">|</span>
             <a href="http://57.131.33.151:3001/" target="_blank">Block Explorer ↗</a>
         </div>

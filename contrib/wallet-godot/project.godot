@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="PIV2 Wallet"
-config/description="Lightweight wallet for PIVX 2.0 - Thin RPC client"
+config/name="BATHRON Wallet"
+config/description="Lightweight wallet for BATHRON - Thin RPC client"
 config/version="0.1.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "Mobile")

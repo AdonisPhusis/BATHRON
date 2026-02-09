@@ -11,7 +11,7 @@ describe("BATHRON_HTLC", function () {
   const secret = ethers.encodeBytes32String("test_secret_12345678901234");
   let hashlock;
 
-  // Compute SHA256 hashlock (same as PIV2)
+  // Compute SHA256 hashlock (same as BATHRON)
   function computeHashlock(preimage) {
     // SHA256 (not keccak256!)
     return ethers.sha256(ethers.solidityPacked(["bytes32"], [preimage]));
@@ -270,19 +270,19 @@ describe("BATHRON_HTLC", function () {
       const amount = ethers.parseUnits("100", 6);
       const timelock = (await time.latest()) + 86400;
 
-      // 3. Taker locks tokens (simulates locking on Polygon after LP created LOT on PIV2)
+      // 3. Taker locks tokens (simulates locking on EVM after LP created LOT on BATHRON)
       await mockToken.connect(taker).approve(await htlc.getAddress(), amount);
       await htlc.connect(taker).lock(swapId, lp.address, await mockToken.getAddress(), amount, takerHashlock, timelock);
 
       // 4. At this point:
-      //    - PIV2: LOT exists with takerHashlock
-      //    - Polygon: HTLC exists with takerHashlock
+      //    - BATHRON: LOT exists with takerHashlock
+      //    - EVM: HTLC exists with takerHashlock
       //    - Secret is only known to Taker
 
-      // 5. Taker reveals secret on PIV2 (claim KPIV)
-      //    This makes takerSecret PUBLIC in PIV2 transaction
+      // 5. Taker reveals secret on BATHRON (claim M1)
+      //    This makes takerSecret PUBLIC in BATHRON transaction
 
-      // 6. LP (or bot) sees takerSecret in PIV2 tx, uses it here
+      // 6. LP (or bot) sees takerSecret in BATHRON tx, uses it here
       const tx = await htlc.connect(lp).claim(swapId, takerSecret);
       const receipt = await tx.wait();
 
@@ -299,7 +299,7 @@ describe("BATHRON_HTLC", function () {
       const parsedEvent = htlc.interface.parseLog(claimedEvent);
       expect(parsedEvent.args.preimage).to.equal(takerSecret);
 
-      // 8. Swap complete - LP has USDC, Taker has KPIV (on PIV2)
+      // 8. Swap complete - LP has USDC, Taker has M1 (on BATHRON)
       expect(await mockToken.balanceOf(lp.address)).to.equal(amount);
     });
   });

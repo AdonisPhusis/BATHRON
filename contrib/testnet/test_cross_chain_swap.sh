@@ -42,7 +42,7 @@ TEST_NODE="$OP1_IP"
 
 # Configuration - remote execution
 BATHRON_CLI_REMOTE="~/bathron-cli -testnet"
-BTC_CLI="$HOME/PIV2-Core/BTCTESTNET/bitcoin-27.0/bin/bitcoin-cli -signet"
+BTC_CLI="$HOME/BATHRON/BTCTESTNET/bitcoin-27.0/bin/bitcoin-cli -signet"
 
 # Test addresses
 USER_M1_ADDRESS="y4eFhNMXEJr3wKKDFvtEP8bv6zQ51scLFk"  # bob
@@ -186,7 +186,7 @@ from sdk.chains.btc import BTCClient, BTCConfig
 
 config = BTCConfig(
     network='signet',
-    cli_path='/home/ubuntu/PIV2-Core/BTCTESTNET/bitcoin-27.0/bin/bitcoin-cli'
+    cli_path='/home/ubuntu/BATHRON/BTCTESTNET/bitcoin-27.0/bin/bitcoin-cli'
 )
 client = BTCClient(config)
 htlc = BTCHtlc(client)

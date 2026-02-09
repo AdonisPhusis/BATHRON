@@ -1,4 +1,4 @@
-# PIV2 DEX SDK Dependencies
+# BATHRON DEX SDK Dependencies
 # Install: pip install -r requirements.txt
 
 flask>=3.0.0

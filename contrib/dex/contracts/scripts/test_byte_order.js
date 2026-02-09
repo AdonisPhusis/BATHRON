@@ -2,8 +2,8 @@ const { ethers } = require("hardhat");
 
 async function main() {
     // Values from the failed swap
-    const S_piv2 = "fbd56513c9d23b23998c7ef03f9a1e48f9ede96bdf2046e1187c7a09c2218991";
-    const H_piv2 = "bebed079ad8ca9c3388a225e29695d8cc1d50f5096a53f5f788b634660d87f76";
+    const S_bathron = "fbd56513c9d23b23998c7ef03f9a1e48f9ede96bdf2046e1187c7a09c2218991";
+    const H_bathron = "bebed079ad8ca9c3388a225e29695d8cc1d50f5096a53f5f788b634660d87f76";
     
     // Reverse byte order function
     function reverseBytes32(hex) {
@@ -13,13 +13,13 @@ async function main() {
     }
     
     // Convert to EVM format
-    const S_evm = reverseBytes32(S_piv2);
-    const H_evm = reverseBytes32(H_piv2);
+    const S_evm = reverseBytes32(S_bathron);
+    const H_evm = reverseBytes32(H_bathron);
     
     console.log("=== Byte Order Conversion ===");
-    console.log("PIV2 Preimage (S):", "0x" + S_piv2);
+    console.log("BATHRON Preimage (S):", "0x" + S_bathron);
     console.log("EVM Preimage (S): ", S_evm);
-    console.log("PIV2 Hashlock (H):", "0x" + H_piv2);
+    console.log("BATHRON Hashlock (H):", "0x" + H_bathron);
     console.log("EVM Hashlock (H): ", H_evm);
     
     // Verify sha256 relationship

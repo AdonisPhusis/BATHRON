@@ -118,7 +118,7 @@ const SecretVault = {
      * @returns {Promise<Object>} { secret: hex, hashlock: hex }
      *
      * IMPORTANT: Uses SHA256 (NOT keccak256) for cross-chain compatibility
-     * with PIV2 Core which uses single-round SHA256 for HTLC hashlocks.
+     * with BATHRON Core which uses single-round SHA256 for HTLC hashlocks.
      */
     async generateSecret() {
         // Generate 32 random bytes for secret
@@ -134,7 +134,7 @@ const SecretVault = {
             console.log('[Vault] Using ethers.sha256 for hashlock');
         } else {
             // Calculate hashlock H = SHA256(S) using WebCrypto
-            // CRITICAL: PIV2 Core uses single-round SHA256, NOT keccak256
+            // CRITICAL: BATHRON Core uses single-round SHA256, NOT keccak256
             const hashBuffer = await crypto.subtle.digest('SHA-256', secretBytes);
             hashlock = this._bytesToHex(new Uint8Array(hashBuffer));
         }

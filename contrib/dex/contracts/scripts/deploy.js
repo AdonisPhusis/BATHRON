@@ -2,7 +2,7 @@ const hre = require("hardhat");
 
 async function main() {
   console.log("═══════════════════════════════════════════════════════════════");
-  console.log("  PIV2_HTLC Deployment Script");
+  console.log("  BATHRON_HTLC Deployment Script");
   console.log("═══════════════════════════════════════════════════════════════");
   console.log("");
 
@@ -21,9 +21,9 @@ async function main() {
   console.log("");
 
   // Deploy contract
-  console.log("Deploying PIV2_HTLC...");
-  const PIV2_HTLC = await hre.ethers.getContractFactory("PIV2_HTLC");
-  const htlc = await PIV2_HTLC.deploy();
+  console.log("Deploying BATHRON_HTLC...");
+  const BATHRON_HTLC = await hre.ethers.getContractFactory("BATHRON_HTLC");
+  const htlc = await BATHRON_HTLC.deploy();
 
   await htlc.waitForDeployment();
   const address = await htlc.getAddress();
@@ -33,7 +33,7 @@ async function main() {
   console.log("  DEPLOYMENT SUCCESSFUL");
   console.log("═══════════════════════════════════════════════════════════════");
   console.log("");
-  console.log(`  Contract: PIV2_HTLC`);
+  console.log(`  Contract: BATHRON_HTLC`);
   console.log(`  Address:  ${address}`);
   console.log(`  Network:  ${network}`);
   console.log(`  ChainId:  ${chainId}`);
@@ -62,7 +62,7 @@ async function main() {
 
   // Save deployment info
   const deploymentInfo = {
-    contract: "PIV2_HTLC",
+    contract: "BATHRON_HTLC",
     address: address,
     network: network,
     chainId: chainId,

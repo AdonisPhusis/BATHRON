@@ -3,14 +3,14 @@ pragma solidity ^0.8.20;
 
 /**
  * @title BATHRON_HTLC
- * @notice Hash Time-Locked Contract for PIV2 cross-chain atomic swaps
- * @dev Used for trustless KPIV <-> USDC/ETH/tokens swaps
+ * @notice Hash Time-Locked Contract for BATHRON cross-chain atomic swaps
+ * @dev Used for trustless M1 <-> USDC/ETH/tokens swaps
  *
  * Flow:
  *   1. Taker generates secret S, computes H = SHA256(S)
- *   2. LP creates LOT on PIV2 with hashlock H
+ *   2. LP creates LOT on BATHRON with hashlock H
  *   3. Taker locks tokens here with same hashlock H
- *   4. Taker reveals S on PIV2 to claim KPIV
+ *   4. Taker reveals S on BATHRON to claim M1
  *   5. LP (or anyone) sees S, calls claim(S) here to get tokens
  *   6. If no claim before timelock, Taker can refund
  */
@@ -31,7 +31,7 @@ contract BATHRON_HTLC is ReentrancyGuard {
         address taker;        // Creator of the swap (can refund after timelock)
         address token;        // ERC20 token address (or address(0) for native)
         uint256 amount;       // Amount locked
-        bytes32 hashlock;     // SHA256(secret) - same as PIV2 LOT
+        bytes32 hashlock;     // SHA256(secret) - same as BATHRON LOT
         uint256 timelock;     // Unix timestamp after which refund is allowed
         bool claimed;         // True if LP claimed with preimage
         bool refunded;        // True if Taker refunded after timelock
@@ -99,7 +99,7 @@ contract BATHRON_HTLC is ReentrancyGuard {
      * @param lp Address that will receive tokens when claiming with preimage
      * @param token ERC20 token address to lock
      * @param amount Amount of tokens to lock
-     * @param hashlock SHA256 hash of the secret (must match PIV2 LOT)
+     * @param hashlock SHA256 hash of the secret (must match BATHRON LOT)
      * @param timelock Unix timestamp after which Taker can refund
      */
     function lock(
