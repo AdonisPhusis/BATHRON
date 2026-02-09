@@ -11,6 +11,30 @@ Today, a single node publishes BTC headers and processes burn claims. That's a c
 
 ## Tools
 
+### burn_signet.sh
+
+Burn BTC on Signet to mint M0BTC on BATHRON testnet. One command, fully automated.
+
+```bash
+./burn_signet.sh <bathron_address> <amount_sats>
+
+# Example: burn 10,000 sats (0.0001 BTC) to alice's address
+./burn_signet.sh yJYD2bfYYBe6qAojSzMKX949H7QoQifNAo 10000
+```
+
+The script:
+1. Converts the BATHRON address to hash160
+2. Builds the OP_RETURN metadata (`BATHRON|01|T|<hash160>`)
+3. Creates a TX with a P2WSH(OP_FALSE) burn output (provably unspendable)
+4. Verifies BP08 compliance before broadcast
+5. Broadcasts and saves burn info for tracking
+
+**Burn address (Signet):** `tb1qdc6qh88lkdaf3899gnntk7q293ufq8flkvmnsa59zx3sv9a05qwsdh5h09`
+
+After broadcast, the burn claim daemon (or anyone running it) will detect the burn, submit `TX_BURN_CLAIM`, and M0BTC will be minted automatically after K=6 confirmations.
+
+**Min burn:** 1,000 sats | **Faucets:** [signetfaucet.com](https://signetfaucet.com) | [alt.signetfaucet.com](https://alt.signetfaucet.com)
+
 ### btc_header_daemon.sh
 
 Syncs BTC headers into BATHRON's SPV chain. Polls your local Bitcoin node and submits headers to your BATHRON node, which then broadcasts `TX_BTC_HEADERS` to the network.
