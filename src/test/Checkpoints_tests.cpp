@@ -1,0 +1,48 @@
+// Copyright (c) 2011-2013 The Bitcoin Core developers
+// Copyright (c) 2017-2020 The BATHRON Core developers
+// Copyright (c) 2025 The BATHRON Core developers
+// Distributed under the MIT/X11 software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+//
+// Unit tests for block-chain checkpoints
+//
+// NOTE: DISABLED FOR BATHRON
+// This test validates legacy mainnet checkpoints (blocks 259201, 623933) which
+// do not exist in BATHRON. BATHRON has mapCheckpoints = {} (empty) since it's a
+// new chain with its own genesis. Re-enable when BATHRON mainnet checkpoints
+// are defined.
+//
+
+#include "checkpoints.h"
+
+#include "uint256.h"
+#include "test_bathron.h"
+
+#include <boost/test/unit_test.hpp>
+
+
+BOOST_FIXTURE_TEST_SUITE(Checkpoints_tests, BasicTestingSetup)
+
+#if 0 // DISABLED: Legacy legacy mainnet checkpoints - not applicable to BATHRON
+BOOST_AUTO_TEST_CASE(sanity)
+{
+    uint256 p259201 = uint256S("0x1c9121bf9329a6234bfd1ea2d91515f19cd96990725265253f4b164283ade5dd");
+    uint256 p623933 = uint256S("0xc7aafa648a0f1450157dc93bd4d7448913a85b7448f803b4ab970d91fc2a7da7");
+    BOOST_CHECK(Checkpoints::CheckBlock(259201, p259201));
+    BOOST_CHECK(Checkpoints::CheckBlock(623933, p623933));
+
+
+    // Wrong hashes at checkpoints should fail:
+    BOOST_CHECK(!Checkpoints::CheckBlock(259201, p623933));
+    BOOST_CHECK(!Checkpoints::CheckBlock(623933, p259201));
+
+    // ... but any hash not at a checkpoint should succeed:
+    BOOST_CHECK(Checkpoints::CheckBlock(259201+1, p623933));
+    BOOST_CHECK(Checkpoints::CheckBlock(623933+1, p259201));
+
+    BOOST_CHECK(Checkpoints::GetTotalBlocksEstimate() >= 623933);
+}
+#endif
+
+BOOST_AUTO_TEST_SUITE_END()

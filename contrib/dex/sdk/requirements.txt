@@ -1,0 +1,8 @@
+# PIV2 DEX SDK Dependencies
+# Install: pip install -r requirements.txt
+
+flask>=3.0.0
+flask-cors>=4.0.0
+web3>=7.0.0
+eth-account>=0.13.0
+requests>=2.31.0

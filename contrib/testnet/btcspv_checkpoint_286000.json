@@ -1,0 +1,17 @@
+{
+  "description": "BTC Signet checkpoint for ultra-clean genesis v3.1",
+  "purpose": "SPV initialization point BEFORE first burn (286326)",
+  "network": "signet",
+  "height": 286000,
+  "hash": "0000000732c0c78558a50be0774d99188f65ee374e10ff9816deaf42df9f7780",
+  "chainwork": "000000000000000000000000000000000000000000000000000009f3cf1f88dc",
+  "bits": "1d1420d7",
+  "first_burn": 286326,
+  "margin_blocks": 326,
+  "notes": [
+    "This checkpoint is hardcoded in src/btcspv/btcspv.cpp",
+    "btcspv initializes from oldest checkpoint (200000)",
+    "But headers from 280000-286000 are validated against checkpoints",
+    "Burns from 286326+ can be discovered after syncing headers 286001+"
+  ]
+}

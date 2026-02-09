@@ -1,0 +1,19 @@
+{
+  "piv2_rpc": {
+    "host": "127.0.0.1",
+    "port": 27170,
+    "user": "testuser",
+    "password": "testpass123"
+  },
+  "polygon": {
+    "rpc_url": "https://polygon-rpc.com",
+    "htlc_contract": "0x3F1843Bc98C526542d6112448842718adc13fA5F",
+    "chain_id": 137
+  },
+  "lp_wallet": {
+    "private_key": "ENTER_YOUR_PRIVATE_KEY_HERE",
+    "address": "0x73748C0CDf44c360De6F4aC66E488384F4c8664B"
+  },
+  "poll_interval": 30,
+  "state_file": "lp_bot_state.json"
+}

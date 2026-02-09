@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet Viewer - Fake User</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            color: #fff;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .wallet-section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .section-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .icon-bathron { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .icon-btc { background: linear-gradient(135deg, #f7931a 0%, #ff6b00 100%); }
+        .icon-eth { background: linear-gradient(135deg, #627eea 0%, #3c3c3d 100%); }
+        .icon-usdc { background: linear-gradient(135deg, #2775ca 0%, #1a5bb8 100%); }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .section-network {
+            font-size: 0.75rem;
+            color: #666;
+            margin-left: auto;
+            padding: 4px 10px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+        }
+
+        .balance-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .balance-row:last-child {
+            border-bottom: none;
+        }
+
+        .balance-label {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .balance-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #4ade80;
+        }
+
+        .balance-value.loading {
+            color: #888;
+        }
+
+        .balance-value.error {
+            color: #ef4444;
+            font-size: 0.85rem;
+        }
+
+        .address-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            margin-bottom: 10px;
+        }
+
+        .address-label {
+            color: #666;
+            font-size: 0.75rem;
+            min-width: 60px;
+        }
+
+        .address-value {
+            font-size: 0.8rem;
+            color: #a0a0a0;
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            background: rgba(255,255,255,0.05);
+            border: none;
+            color: #888;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .summary-section {
+            background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%);
+            border: 1px solid rgba(102,126,234,0.2);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+        }
+
+        .summary-item {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+        }
+
+        .summary-amount {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #4ade80;
+            margin-bottom: 5px;
+        }
+
+        .summary-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .faucets {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 12px;
+        }
+
+        .faucets h3 {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .faucet-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .faucet-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            color: #a0a0a0;
+            text-decoration: none;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .faucet-link:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border-color: rgba(255,255,255,0.15);
+        }
+
+        .refresh-btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            margin-top: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 1px;
+        }
+
+        .refresh-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .refresh-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #555;
+            font-size: 0.75rem;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>WALLET VIEWER</h1>
+            <p class="subtitle">Fake User (charlie) @ OP3</p>
+        </header>
+
+        <!-- BATHRON Section -->
+        <div class="wallet-section">
+            <div class="section-header">
+                <div class="section-icon icon-bathron">B</div>
+                <span class="section-title">BATHRON</span>
+                <span class="section-network">Testnet</span>
+            </div>
+            <div class="address-row">
+                <span class="address-label">Address</span>
+                <span class="address-value" id="bathron-address">yBFhaDZ4kJxCXioDT5ztqJzDRFh4wmbwMe</span>
+                <button class="copy-btn" onclick="copyToClipboard('bathron-address')">Copy</button>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">M0 Balance</span>
+                <span class="balance-value loading" id="m0-balance">Loading...</span>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">M1 Balance</span>
+                <span class="balance-value loading" id="m1-balance">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Bitcoin Section -->
+        <div class="wallet-section">
+            <div class="section-header">
+                <div class="section-icon icon-btc">₿</div>
+                <span class="section-title">Bitcoin</span>
+                <span class="section-network">Signet</span>
+            </div>
+            <div class="address-row">
+                <span class="address-label">Address</span>
+                <span class="address-value" id="btc-address">tb1qkd2kyur0yqxpp6hvtwheukwpfjt2h5atapyhe7</span>
+                <button class="copy-btn" onclick="copyToClipboard('btc-address')">Copy</button>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">BTC Balance</span>
+                <span class="balance-value loading" id="btc-balance">Loading...</span>
+            </div>
+        </div>
+
+        <!-- ETH Section -->
+        <div class="wallet-section">
+            <div class="section-header">
+                <div class="section-icon icon-eth">Ξ</div>
+                <span class="section-title">Ethereum</span>
+                <span class="section-network">Base Sepolia</span>
+            </div>
+            <div class="address-row">
+                <span class="address-label">Address</span>
+                <span class="address-value" id="eth-address">Loading...</span>
+                <button class="copy-btn" onclick="copyToClipboard('eth-address')">Copy</button>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">ETH Balance</span>
+                <span class="balance-value loading" id="eth-balance">Loading...</span>
+            </div>
+        </div>
+
+        <!-- USDC Section -->
+        <div class="wallet-section">
+            <div class="section-header">
+                <div class="section-icon icon-usdc">$</div>
+                <span class="section-title">USDC</span>
+                <span class="section-network">Base Sepolia</span>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">USDC Balance</span>
+                <span class="balance-value loading" id="usdc-balance">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="wallet-section summary-section">
+            <div class="section-header">
+                <span class="section-title">Portfolio Summary</span>
+            </div>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-amount" id="summary-m0">-</div>
+                    <div class="summary-label">M0</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-amount" id="summary-m1">-</div>
+                    <div class="summary-label">M1</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-amount" id="summary-btc">-</div>
+                    <div class="summary-label">BTC</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-amount" id="summary-eth">-</div>
+                    <div class="summary-label">ETH</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-amount" id="summary-usdc">-</div>
+                    <div class="summary-label">USDC</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Faucets -->
+        <div class="faucets">
+            <h3>Testnet Faucets</h3>
+            <div class="faucet-links">
+                <a href="https://signetfaucet.com" target="_blank" class="faucet-link">
+                    <span>₿</span> BTC Signet
+                </a>
+                <a href="https://www.alchemy.com/faucets/base-sepolia" target="_blank" class="faucet-link">
+                    <span>Ξ</span> ETH Base
+                </a>
+                <a href="https://faucet.circle.com/" target="_blank" class="faucet-link">
+                    <span>$</span> USDC Base
+                </a>
+            </div>
+        </div>
+
+        <button class="refresh-btn" onclick="refreshAll()" id="refresh-btn">
+            REFRESH BALANCES
+        </button>
+
+        <p class="last-updated" id="last-updated"></p>
+    </div>
+
+    <script>
+        // Configuration
+        const BASE_RPC = 'https://sepolia.base.org';
+        const USDC_CONTRACT = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+        const API_BASE = window.location.origin;
+
+        // State
+        let evmAddress = null;
+
+        async function fetchEvmAddress() {
+            try {
+                const response = await fetch(`${API_BASE}/api/evm-address`);
+                const data = await response.json();
+                if (data.address) {
+                    evmAddress = data.address;
+                    document.getElementById('eth-address').textContent = evmAddress;
+                    return evmAddress;
+                }
+            } catch (e) {
+                console.error('Failed to fetch EVM address:', e);
+            }
+            document.getElementById('eth-address').textContent = 'Not configured';
+            return null;
+        }
+
+        async function fetchEthBalance(address) {
+            try {
+                const response = await fetch(BASE_RPC, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'eth_getBalance',
+                        params: [address, 'latest'],
+                        id: 1
+                    })
+                });
+                const data = await response.json();
+                const wei = BigInt(data.result || '0x0');
+                const eth = Number(wei) / 1e18;
+                return eth.toFixed(6);
+            } catch (e) {
+                console.error('ETH balance error:', e);
+                return 'Error';
+            }
+        }
+
+        async function fetchUsdcBalance(address) {
+            try {
+                // balanceOf(address) selector = 0x70a08231
+                const addressPadded = address.slice(2).toLowerCase().padStart(64, '0');
+                const callData = '0x70a08231' + addressPadded;
+
+                const response = await fetch(BASE_RPC, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'eth_call',
+                        params: [{ to: USDC_CONTRACT, data: callData }, 'latest'],
+                        id: 1
+                    })
+                });
+                const data = await response.json();
+                const raw = BigInt(data.result || '0x0');
+                const usdc = Number(raw) / 1e6; // USDC has 6 decimals
+                return usdc.toFixed(2);
+            } catch (e) {
+                console.error('USDC balance error:', e);
+                return 'Error';
+            }
+        }
+
+        async function fetchBathronBalances() {
+            try {
+                const response = await fetch(`${API_BASE}/api/bathron-balances`);
+                const data = await response.json();
+                return data;
+            } catch (e) {
+                console.error('BATHRON balance error:', e);
+                return { m0: 'Error', m1: 'Error' };
+            }
+        }
+
+        async function fetchBtcBalance() {
+            try {
+                const response = await fetch(`${API_BASE}/api/btc-balance`);
+                const data = await response.json();
+                return data.balance || 'Error';
+            } catch (e) {
+                console.error('BTC balance error:', e);
+                return 'Error';
+            }
+        }
+
+        function updateBalance(id, value, summaryId = null) {
+            const el = document.getElementById(id);
+            el.textContent = value;
+            el.classList.remove('loading');
+            if (value === 'Error' || value === 'Not running') {
+                el.classList.add('error');
+            } else {
+                el.classList.remove('error');
+            }
+
+            if (summaryId) {
+                document.getElementById(summaryId).textContent = value;
+            }
+        }
+
+        async function refreshAll() {
+            const btn = document.getElementById('refresh-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>REFRESHING...';
+
+            // Reset to loading state
+            ['m0-balance', 'm1-balance', 'btc-balance', 'eth-balance', 'usdc-balance'].forEach(id => {
+                const el = document.getElementById(id);
+                el.textContent = 'Loading...';
+                el.classList.add('loading');
+                el.classList.remove('error');
+            });
+
+            try {
+                // Fetch all in parallel
+                const [bathron, btc, evmAddr] = await Promise.all([
+                    fetchBathronBalances(),
+                    fetchBtcBalance(),
+                    evmAddress ? Promise.resolve(evmAddress) : fetchEvmAddress()
+                ]);
+
+                updateBalance('m0-balance', bathron.m0, 'summary-m0');
+                updateBalance('m1-balance', bathron.m1, 'summary-m1');
+                updateBalance('btc-balance', btc + ' BTC', 'summary-btc');
+
+                if (evmAddr) {
+                    const [eth, usdc] = await Promise.all([
+                        fetchEthBalance(evmAddr),
+                        fetchUsdcBalance(evmAddr)
+                    ]);
+                    updateBalance('eth-balance', eth + ' ETH', 'summary-eth');
+                    updateBalance('usdc-balance', usdc + ' USDC', 'summary-usdc');
+                } else {
+                    updateBalance('eth-balance', 'Not configured');
+                    updateBalance('usdc-balance', 'Not configured');
+                }
+
+                document.getElementById('last-updated').textContent =
+                    'Last updated: ' + new Date().toLocaleTimeString();
+            } catch (e) {
+                console.error('Refresh error:', e);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'REFRESH BALANCES';
+        }
+
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            });
+        }
+
+        // Initial load
+        window.addEventListener('load', refreshAll);
+    </script>
+</body>
+</html>

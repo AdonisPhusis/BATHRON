@@ -1,0 +1,164 @@
+{
+  "burns": [
+    {
+      "btc_txid": "089706dba86ef5e99a0303a7db57a65f7c2c5175fdbba176eb241466a73d97a8",
+      "btc_height": 286326,
+      "amount": 10000
+    },
+    {
+      "btc_txid": "7422bfbd84e3353788bc3ffa81edccdcbcf8cd922f8c60cc8b90abb401391174",
+      "btc_height": 286329,
+      "amount": 2000000
+    },
+    {
+      "btc_txid": "5d97ae2320ff1139d0d86b169bd36b665a3a41b519e0326479dd3e8d322f1409",
+      "btc_height": 286358,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "5d4cc9345ebfaa7f9b64e50e5799b213fe7a27c880073665e9068e1f21c101c6",
+      "btc_height": 286380,
+      "amount": 100000
+    },
+    {
+      "btc_txid": "eec27598ba7c39db92bf9b9d7c7f808849e737b151288d9c7a0c21dcece3fe6b",
+      "btc_height": 286620,
+      "amount": 100000
+    },
+    {
+      "btc_txid": "13594dd766257cc674e8143cabcdb8093e3a9ecb13ca5f8dae6bff7fe19c5033",
+      "btc_height": 286638,
+      "amount": 10000
+    },
+    {
+      "btc_txid": "81933bb6f40ecdfd743816519b482e090d6f9c550a6f1c1dfd64c0464f9b9d9f",
+      "btc_height": 286655,
+      "amount": 50000
+    },
+    {
+      "btc_txid": "c1b5ea2f1995ab734a7ece42ebde5370cf7b1907df0fc96d6d91dbe5e5ffcea7",
+      "btc_height": 286662,
+      "amount": 50000
+    },
+    {
+      "btc_txid": "e6d16a4bbc45703dba5aafb569370cc9e86c8014fa2230299c1363a50e8847c9",
+      "btc_height": 286676,
+      "amount": 10000
+    },
+    {
+      "btc_txid": "11c6aa6e6a9c2d802aa9d088b00add89adf689b2ea08f86dee88aa1010005403",
+      "btc_height": 286748,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "1c35a89fb28628b9c37c1167dbb4220a8a4c84a78889883b9e435c7634441f7e",
+      "btc_height": 286748,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "d87f28017318e86f52b5fd70a101fd18929502928d1b7f8cf71117d3302f935e",
+      "btc_height": 286748,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "e807051674f4f45ff9c29b617faccff6066b8f5ae39f20e5af493b081c39220f",
+      "btc_height": 286754,
+      "amount": 10000
+    },
+    {
+      "btc_txid": "9d49d7fcbfa821e4ead912bc89da1213dae88e276c18cf2be3f35425a04712ef",
+      "btc_height": 287177,
+      "amount": 100000
+    },
+    {
+      "btc_txid": "dbe9ae88b1f546e21492327ca28414040ec5b97d142b81348c60776e481135bc",
+      "btc_height": 287352,
+      "amount": 10000
+    },
+    {
+      "btc_txid": "b3074cf3287f42adf243ebc0973f2851a01f225a29a613c60498ae6f52d1347c",
+      "btc_height": 287483,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "0c54bde0b1e3dce118800f48056606c03ca7e5b0112a2db4c5be69e0879a1ac6",
+      "btc_height": 287483,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "4b9eb580576fbd43f79029f6a12bcffa623edbfdfee32d5b3f474d8563d488fb",
+      "btc_height": 287483,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "1535d8e7ae959d629bf19f1fc4b2b87945dcd09e05a81dcf4e70183717caece5",
+      "btc_height": 287613,
+      "amount": 100000
+    },
+    {
+      "btc_txid": "7fabd2ff9d049598bdedbf5549408a4742baf3238175ea70d4892d2b78dd80c7",
+      "btc_height": 287654,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "0f70f42b93901d518e04ef5ddfcb0c9717f0015c3ff12b6d4d106f9c1eee4a66",
+      "btc_height": 287657,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "39bd3c190d791610af4a3b21de719c372f42be79c83631e22740e63ba6159761",
+      "btc_height": 287660,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "6801065958ee312c47d353a9140dda8b06a800f66367e775f5239819af11a795",
+      "btc_height": 287661,
+      "amount": 1000000
+    },
+    {
+      "btc_txid": "dc3fa2c1ac1e9b0f8734e0d8680188d84e451ef4ef4a26798897cffc3700aa03",
+      "btc_height": 287661,
+      "amount": 370000
+    },
+    {
+      "btc_txid": "41f0736a5af866621f7fc7a03e762c72fc2ce949bc96f22407c75994a197372f",
+      "btc_height": 287735,
+      "amount": 400000
+    },
+    {
+      "btc_txid": "3bb321b311497dca40bcd8a76cc04fbeb66225a847f2e4727a0324c075c424ed",
+      "btc_height": 287735,
+      "amount": 5000
+    },
+    {
+      "btc_txid": "248581760190f252630e8da4b1654be412e8ca0d44469487d365351c17f8f4df",
+      "btc_height": 288389,
+      "amount": 50000
+    },
+    {
+      "btc_txid": "4088a4f8eaa44fb726ec81901f4f2e18d84b6131dba25e3930842244e15bc82f",
+      "btc_height": 288476,
+      "amount": 25000
+    },
+    {
+      "btc_txid": "5d8daa25f287452e4ebca645ca67eab4335e210549b2301d1f0bf4ec1a9bec54",
+      "btc_height": 288537,
+      "amount": 25000
+    },
+    {
+      "btc_txid": "d973db058da81bacdd73b4b2b0cf93a6b4721bbcdbbbf896d090813b1fb204b4",
+      "btc_height": 288556,
+      "amount": 50000
+    },
+    {
+      "btc_txid": "8e46b03e7cbac00fc3dfdcdbfc257a6cc00cbdf330eea2d70c9b8831d252c75f",
+      "btc_height": 288558,
+      "amount": 30000
+    },
+    {
+      "btc_txid": "de021e1bbb751aacaa5da0e06cb78ee73ec5b714dc103160caa5a5f5407c27e3",
+      "btc_height": 289216,
+      "amount": 10000
+    }
+  ]
+}

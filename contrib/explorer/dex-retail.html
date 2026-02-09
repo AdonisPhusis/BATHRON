@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIV2 DEX - Buy KPIV</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 30px; color: #00d4ff; }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 { margin-bottom: 16px; font-size: 1.2em; color: #00d4ff; }
+        label { display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9em; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 16px;
+        }
+        input:focus { outline: none; border-color: #00d4ff; }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #00d4ff, #0099cc); color: #000; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,212,255,0.4); }
+        .btn-primary:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: #333; color: #fff; margin-top: 10px; }
+        .status {
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .status.info { background: rgba(0,212,255,0.1); border: 1px solid #00d4ff; }
+        .status.success { background: rgba(0,255,100,0.1); border: 1px solid #0f0; }
+        .status.error { background: rgba(255,50,50,0.1); border: 1px solid #f55; }
+        .status.warning { background: rgba(255,200,0,0.1); border: 1px solid #fc0; }
+        .step { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .step:last-child { border-bottom: none; }
+        .step-num {
+            width: 32px; height: 32px;
+            background: #333;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin-right: 12px;
+            font-weight: bold;
+        }
+        .step-num.active { background: #00d4ff; color: #000; }
+        .step-num.done { background: #0f0; color: #000; }
+        .step-text { flex: 1; }
+        .step-status { font-size: 0.8em; color: #888; }
+        .hidden { display: none; }
+        .lot-info {
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .lot-info div { display: flex; justify-content: space-between; padding: 4px 0; }
+        .lot-info .value { color: #00d4ff; font-weight: bold; }
+        .secret-box {
+            background: #220;
+            border: 2px solid #f80;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 16px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+        .copy-btn {
+            background: #333;
+            border: none;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            margin-left: 8px;
+        }
+        #logs {
+            background: #000;
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.8em;
+            line-height: 1.6;
+        }
+        #logs .log-time { color: #666; }
+        #logs .log-info { color: #0af; }
+        #logs .log-success { color: #0f0; }
+        #logs .log-error { color: #f55; }
+        #logs .log-warn { color: #fc0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PIV2 DEX - Buy KPIV</h1>
+
+        <!-- Wallet Connection -->
+        <div class="card" id="card-wallet">
+            <h2>1. Connect Wallet</h2>
+            <button class="btn-primary" id="btn-connect" onclick="connectWallet()">
+                Connect MetaMask
+            </button>
+            <div class="status info hidden" id="wallet-status"></div>
+        </div>
+
+        <!-- Order Form -->
+        <div class="card hidden" id="card-order">
+            <h2>2. Place Order</h2>
+            <div class="lot-info" id="lot-info">
+                <div><span>Best Price:</span> <span class="value" id="lot-price">-</span></div>
+                <div><span>Available:</span> <span class="value" id="lot-size">-</span></div>
+                <div><span>LP Address:</span> <span class="value" id="lot-lp">-</span></div>
+            </div>
+            <label>Amount USDC to spend</label>
+            <input type="number" id="input-usdc" placeholder="0.05" step="0.01" min="0.01" value="0.05">
+            <label>Your KPIV Address (to receive)</label>
+            <input type="text" id="input-kpiv-addr" placeholder="y7XRqXgz1d8ELErDxtwQPnvfbe2ZcUecka">
+            <div id="order-summary" style="color: #888; margin-bottom: 16px;"></div>
+            <button class="btn-primary" id="btn-start" onclick="startSwap()">
+                Start Swap
+            </button>
+        </div>
+
+        <!-- Swap Progress -->
+        <div class="card hidden" id="card-progress">
+            <h2>3. Swap Progress</h2>
+            <div class="secret-box" id="secret-box">
+                <strong>YOUR SECRET (SAVE THIS!):</strong><br>
+                <span id="secret-display">-</span>
+                <button class="copy-btn" onclick="copySecret()">Copy</button>
+            </div>
+            <div id="steps">
+                <div class="step" id="step-1">
+                    <div class="step-num">1</div>
+                    <div class="step-text">Generate Secret & Register</div>
+                    <div class="step-status" id="step-1-status">pending</div>
+                </div>
+                <div class="step" id="step-2">
+                    <div class="step-num">2</div>
+                    <div class="step-text">Lock USDC on Polygon</div>
+                    <div class="step-status" id="step-2-status">pending</div>
+                </div>
+                <div class="step" id="step-3">
+                    <div class="step-num">3</div>
+                    <div class="step-text">Wait for LP HTLC</div>
+                    <div class="step-status" id="step-3-status">pending</div>
+                </div>
+                <div class="step" id="step-4">
+                    <div class="step-num">4</div>
+                    <div class="step-text">Claim KPIV</div>
+                    <div class="step-status" id="step-4-status">pending</div>
+                </div>
+            </div>
+            <div class="status info hidden" id="progress-status"></div>
+            <button class="btn-primary hidden" id="btn-claim" onclick="claimKpiv()">
+                Claim KPIV Now!
+            </button>
+        </div>
+
+        <!-- Logs -->
+        <div class="card">
+            <h2>Logs</h2>
+            <div id="logs"></div>
+        </div>
+    </div>
+
+    <script>
+        // =============================================================================
+        // CONFIGURATION
+        // =============================================================================
+        const CONFIG = {
+            SWAP_WATCHER_URL: 'http://57.131.33.151:8080',
+            POLYGON_RPC: 'https://polygon-rpc.com',
+            HTLC_CONTRACT: '0x3F1843Bc98C526542d6112448842718adc13fA5F',
+            USDC_CONTRACT: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+            LP_ADDRESS: '0x7348943C8d263ea253c0541656c36b88becD77B9',
+            CHAIN_ID: 137,
+            TIMELOCK_SECONDS: 6 * 3600,  // 6 hours
+            PIV2_RPC: 'http://57.131.33.151:51475',
+        };
+
+        const HTLC_ABI = [
+            "function lock(bytes32 swapId, address recipient, address token, uint256 amount, bytes32 hashlock, uint256 timelock) external",
+            "function claim(bytes32 swapId, bytes32 preimage) external",
+            "function swaps(bytes32) view returns (address sender, address recipient, address token, uint256 amount, bytes32 hashlock, uint256 timelock, bool withdrawn, bool refunded)"
+        ];
+
+        const USDC_ABI = [
+            "function approve(address spender, uint256 amount) external returns (bool)",
+            "function allowance(address owner, address spender) view returns (uint256)",
+            "function balanceOf(address owner) view returns (uint256)"
+        ];
+
+        // =============================================================================
+        // STATE
+        // =============================================================================
+        let state = {
+            provider: null,
+            signer: null,
+            address: null,
+            secret: null,
+            hashlock: null,
+            swapId: null,
+            htlcOutpoint: null,
+            lot: null
+        };
+
+        // =============================================================================
+        // LOGGING
+        // =============================================================================
+        function log(msg, type = 'info') {
+            const logs = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            logs.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="log-${type}">${msg}</span></div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        // =============================================================================
+        // CRYPTO UTILITIES
+        // =============================================================================
+        async function generateSecret() {
+            const secret = new Uint8Array(32);
+            crypto.getRandomValues(secret);
+            return secret;
+        }
+
+        async function computeHashlock(secret) {
+            const hashBuffer = await crypto.subtle.digest('SHA-256', secret);
+            return new Uint8Array(hashBuffer);
+        }
+
+        function toHex(bytes) {
+            return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function toHex0x(bytes) {
+            return '0x' + toHex(bytes);
+        }
+
+        // =============================================================================
+        // WALLET CONNECTION
+        // =============================================================================
+        async function connectWallet() {
+            log('Connecting to MetaMask...');
+            try {
+                if (!window.ethereum) {
+                    throw new Error('MetaMask not installed');
+                }
+
+                state.provider = new ethers.providers.Web3Provider(window.ethereum);
+                await state.provider.send("eth_requestAccounts", []);
+                state.signer = state.provider.getSigner();
+                state.address = await state.signer.getAddress();
+
+                // Check network
+                const network = await state.provider.getNetwork();
+                if (network.chainId !== CONFIG.CHAIN_ID) {
+                    log('Switching to Polygon...', 'warn');
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x89' }],
+                        });
+                    } catch (e) {
+                        throw new Error('Please switch to Polygon network');
+                    }
+                }
+
+                // Check USDC balance
+                const usdc = new ethers.Contract(CONFIG.USDC_CONTRACT, USDC_ABI, state.provider);
+                const balance = await usdc.balanceOf(state.address);
+                const balanceFormatted = ethers.utils.formatUnits(balance, 6);
+
+                document.getElementById('wallet-status').classList.remove('hidden');
+                document.getElementById('wallet-status').innerHTML =
+                    `Connected: ${state.address.slice(0,6)}...${state.address.slice(-4)}<br>` +
+                    `USDC Balance: ${balanceFormatted}`;
+                document.getElementById('btn-connect').textContent = 'Connected';
+                document.getElementById('btn-connect').disabled = true;
+
+                log(`Connected: ${state.address}`, 'success');
+                log(`USDC Balance: ${balanceFormatted}`);
+
+                // Show order form
+                document.getElementById('card-order').classList.remove('hidden');
+                await loadLotInfo();
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+            }
+        }
+
+        // =============================================================================
+        // LOT INFO
+        // =============================================================================
+        async function loadLotInfo() {
+            log('Loading best LOT...');
+            try {
+                const resp = await fetch(`${CONFIG.SWAP_WATCHER_URL}/api/lots`);
+                const data = await resp.json();
+
+                // Find best ASK (lowest price)
+                const asks = data.lots.filter(l => l.side === 'ask' && l.status === 'open');
+                if (asks.length === 0) {
+                    log('No ASK lots available', 'warn');
+                    return;
+                }
+
+                asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+                state.lot = asks[0];
+
+                document.getElementById('lot-price').textContent = `${state.lot.price} USDC/KPIV`;
+                document.getElementById('lot-size').textContent = `${state.lot.remaining} KPIV`;
+                document.getElementById('lot-lp').textContent = state.lot.payment_addr.slice(0,10) + '...';
+
+                log(`Best LOT: ${state.lot.price} USDC/KPIV, ${state.lot.remaining} KPIV available`, 'success');
+                updateOrderSummary();
+
+            } catch (e) {
+                log(`Error loading LOTs: ${e.message}`, 'error');
+            }
+        }
+
+        function updateOrderSummary() {
+            const usdc = parseFloat(document.getElementById('input-usdc').value) || 0;
+            const price = parseFloat(state.lot?.price) || 0.05;
+            const kpiv = usdc / price;
+            document.getElementById('order-summary').innerHTML =
+                `You will receive approximately <strong style="color:#0f0">${kpiv.toFixed(2)} KPIV</strong>`;
+        }
+
+        document.getElementById('input-usdc').addEventListener('input', updateOrderSummary);
+
+        // =============================================================================
+        // SWAP FLOW
+        // =============================================================================
+        async function startSwap() {
+            const usdcAmount = parseFloat(document.getElementById('input-usdc').value);
+            const kpivAddr = document.getElementById('input-kpiv-addr').value.trim();
+
+            if (!usdcAmount || usdcAmount < 0.01) {
+                log('Invalid USDC amount', 'error');
+                return;
+            }
+            if (!kpivAddr || !kpivAddr.startsWith('y')) {
+                log('Invalid KPIV address (must start with y)', 'error');
+                return;
+            }
+
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('card-progress').classList.remove('hidden');
+
+            try {
+                // Step 1: Generate secret and register
+                await step1_generateAndRegister(kpivAddr);
+
+                // Step 2: Lock USDC
+                await step2_lockUsdc(usdcAmount);
+
+                // Step 3: Wait for LP
+                await step3_waitForLp();
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                setStepStatus(getCurrentStep(), 'error');
+            }
+        }
+
+        function setStepStatus(step, status) {
+            const el = document.getElementById(`step-${step}-status`);
+            const num = document.querySelector(`#step-${step} .step-num`);
+            el.textContent = status;
+            num.classList.remove('active', 'done');
+            if (status === 'done') num.classList.add('done');
+            else if (status !== 'pending' && status !== 'error') num.classList.add('active');
+        }
+
+        function getCurrentStep() {
+            for (let i = 1; i <= 4; i++) {
+                const status = document.getElementById(`step-${i}-status`).textContent;
+                if (status !== 'done') return i;
+            }
+            return 4;
+        }
+
+        async function step1_generateAndRegister(kpivAddr) {
+            setStepStatus(1, 'generating...');
+            log('Generating secret...');
+
+            state.secret = await generateSecret();
+            state.hashlock = await computeHashlock(state.secret);
+
+            const secretHex = toHex(state.secret);
+            const hashlockHex = toHex(state.hashlock);
+
+            document.getElementById('secret-display').textContent = secretHex;
+            log(`Secret: ${secretHex.slice(0,16)}...`);
+            log(`Hashlock: ${hashlockHex.slice(0,16)}...`);
+
+            // Save to localStorage
+            localStorage.setItem('swap_secret_' + hashlockHex.slice(0,16), JSON.stringify({
+                secret: secretHex,
+                hashlock: hashlockHex,
+                kpivAddr: kpivAddr,
+                timestamp: Date.now()
+            }));
+
+            // Register with swap watcher
+            setStepStatus(1, 'registering...');
+            log('Registering with LP...');
+
+            const resp = await fetch(`${CONFIG.SWAP_WATCHER_URL}/api/register_taker`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    hashlock: hashlockHex,
+                    kpiv_address: kpivAddr
+                })
+            });
+
+            if (!resp.ok) {
+                throw new Error('Failed to register with LP');
+            }
+
+            log('Registered with LP!', 'success');
+            setStepStatus(1, 'done');
+        }
+
+        async function step2_lockUsdc(amount) {
+            setStepStatus(2, 'approving...');
+            log('Approving USDC...');
+
+            const usdc = new ethers.Contract(CONFIG.USDC_CONTRACT, USDC_ABI, state.signer);
+            const htlc = new ethers.Contract(CONFIG.HTLC_CONTRACT, HTLC_ABI, state.signer);
+            const amountUnits = ethers.utils.parseUnits(amount.toString(), 6);
+
+            // Check allowance
+            const allowance = await usdc.allowance(state.address, CONFIG.HTLC_CONTRACT);
+            if (allowance.lt(amountUnits)) {
+                const approveTx = await usdc.approve(CONFIG.HTLC_CONTRACT, amountUnits);
+                log(`Approve TX: ${approveTx.hash}`);
+                await approveTx.wait();
+                log('Approved!', 'success');
+            } else {
+                log('Already approved');
+            }
+
+            // Generate swap ID
+            setStepStatus(2, 'locking...');
+            log('Locking USDC in HTLC...');
+
+            const nonce = Math.floor(Date.now() / 1000);
+            state.swapId = ethers.utils.keccak256(
+                ethers.utils.solidityPack(
+                    ['address', 'address', 'bytes32', 'uint256'],
+                    [CONFIG.LP_ADDRESS, state.address, toHex0x(state.hashlock), nonce]
+                )
+            );
+
+            const timelock = Math.floor(Date.now() / 1000) + CONFIG.TIMELOCK_SECONDS;
+
+            const lockTx = await htlc.lock(
+                state.swapId,
+                CONFIG.LP_ADDRESS,
+                CONFIG.USDC_CONTRACT,
+                amountUnits,
+                toHex0x(state.hashlock),
+                timelock
+            );
+
+            log(`Lock TX: ${lockTx.hash}`);
+            const receipt = await lockTx.wait();
+
+            if (receipt.status === 1) {
+                log(`USDC locked! Block: ${receipt.blockNumber}`, 'success');
+                setStepStatus(2, 'done');
+            } else {
+                throw new Error('Lock transaction failed');
+            }
+        }
+
+        async function step3_waitForLp() {
+            setStepStatus(3, 'waiting...');
+            log('Waiting for LP to create KPIV HTLC...');
+            log('(LP Watcher will detect your lock automatically)');
+
+            const hashlockHex = toHex(state.hashlock);
+            let attempts = 0;
+            const maxAttempts = 60;  // 5 minutes
+
+            const checkInterval = setInterval(async () => {
+                attempts++;
+                setStepStatus(3, `waiting... ${attempts * 5}s`);
+
+                try {
+                    // Check swap state via API
+                    const resp = await fetch(
+                        `${CONFIG.SWAP_WATCHER_URL}/api/swap/state?hashlock=${hashlockHex}&lp=${CONFIG.LP_ADDRESS}`
+                    );
+                    const swapState = await resp.json();
+
+                    if (swapState.piv_lot_outpoint) {
+                        clearInterval(checkInterval);
+                        state.htlcOutpoint = swapState.piv_lot_outpoint;
+                        log(`LP created HTLC! Outpoint: ${state.htlcOutpoint}`, 'success');
+                        log(`Amount: ${swapState.piv_amount} KPIV`);
+                        setStepStatus(3, 'done');
+
+                        // Show claim button
+                        setStepStatus(4, 'ready');
+                        document.getElementById('btn-claim').classList.remove('hidden');
+                        document.getElementById('progress-status').classList.remove('hidden');
+                        document.getElementById('progress-status').innerHTML =
+                            `<strong>KPIV HTLC Ready!</strong><br>` +
+                            `Amount: ${swapState.piv_amount} KPIV<br>` +
+                            `Click "Claim KPIV Now!" to complete the swap.`;
+                    }
+                } catch (e) {
+                    log(`Checking... (${e.message})`, 'warn');
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    log('Timeout waiting for LP. Your USDC is safe - you can refund after timeout.', 'error');
+                    setStepStatus(3, 'timeout');
+                }
+            }, 5000);
+        }
+
+        async function claimKpiv() {
+            if (!state.htlcOutpoint || !state.secret) {
+                log('Missing HTLC outpoint or secret', 'error');
+                return;
+            }
+
+            setStepStatus(4, 'claiming...');
+            log('Claiming KPIV...');
+
+            const secretHex = toHex(state.secret);
+
+            // Call PIV2 RPC to claim
+            // Note: This requires the user's PIV2 wallet to have the recipient key
+            // For now, show the command to run manually
+
+            const claimCmd = `piv2-cli -testnet htlc_claim_kpiv "${state.htlcOutpoint}" "${secretHex}"`;
+
+            log(`Run this command in your PIV2 wallet:`);
+            log(claimCmd, 'info');
+
+            document.getElementById('progress-status').innerHTML =
+                `<strong>Claim Command:</strong><br>` +
+                `<code style="word-break:break-all;font-size:0.8em">${claimCmd}</code><br><br>` +
+                `<strong>Or use the explorer to broadcast the claim transaction.</strong>`;
+
+            // Try to claim via API (if available)
+            try {
+                const resp = await fetch(`${CONFIG.SWAP_WATCHER_URL}/api/claim_kpiv`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        outpoint: state.htlcOutpoint,
+                        preimage: secretHex
+                    })
+                });
+
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.txid) {
+                        log(`CLAIMED! TX: ${result.txid}`, 'success');
+                        setStepStatus(4, 'done');
+                        document.getElementById('progress-status').classList.remove('info');
+                        document.getElementById('progress-status').classList.add('success');
+                        document.getElementById('progress-status').innerHTML =
+                            `<strong>SWAP COMPLETE!</strong><br>` +
+                            `TX: ${result.txid}<br>` +
+                            `You received: ${result.claimed_amount} KPIV`;
+                    }
+                }
+            } catch (e) {
+                log(`Auto-claim not available. Use manual command above.`, 'warn');
+            }
+
+            setStepStatus(4, 'done');
+        }
+
+        function copySecret() {
+            const secret = document.getElementById('secret-display').textContent;
+            navigator.clipboard.writeText(secret);
+            log('Secret copied to clipboard!', 'success');
+        }
+
+        // =============================================================================
+        // INIT
+        // =============================================================================
+        window.onload = () => {
+            log('PIV2 DEX Retail Interface loaded');
+            log('Connect your MetaMask wallet to start');
+
+            // Check for existing secret in URL
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('resume')) {
+                log('Resuming previous swap...', 'info');
+                // TODO: implement resume
+            }
+        };
+    </script>
+</body>
+</html>
