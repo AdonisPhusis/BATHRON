@@ -1111,6 +1111,9 @@ try {
         $page = 'masternodes';
         $data['masternodes'] = BATHRONExplorer::getMasternodeList();
         $data['network'] = BATHRONExplorer::getNetworkInfo();
+    } elseif ($tab === 'join' || $query === 'join') {
+        $page = 'join';
+        $data['network'] = BATHRONExplorer::getNetworkInfo();
     } elseif ($tab === 'btc' || $query === 'btc') {
         // BTC page (SPV bridge, burns, headers)
         $page = 'btc';
@@ -2285,6 +2288,7 @@ try {
                 <a href="?tab=blocks" class="nav-tab <?= $page === 'blocks' ? 'active' : '' ?>">Blocks</a>
                 <a href="?tab=operators" class="nav-tab <?= $page === 'operators' ? 'active' : '' ?>">Operators</a>
                 <a href="?tab=masternodes" class="nav-tab <?= $page === 'masternodes' ? 'active' : '' ?>">Masternodes</a>
+                <a href="?tab=join" class="nav-tab <?= $page === 'join' ? 'active' : '' ?>" style="color: var(--accent);">Join</a>
                 <a href="http://162.19.251.75:3002/" class="nav-tab" target="_blank" style="color: var(--accent);">DEX ↗</a>
             </nav>
         </div>
@@ -3565,6 +3569,146 @@ try {
                                 <li><strong>SPV:</strong> Merkle proof verification</li>
                                 <li><strong>No custody:</strong> BTC destroyed forever</li>
                             </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        <?php elseif ($page === 'join'): ?>
+            <!-- JOIN PAGE -->
+            <?php
+            $burnAddr = 'tb1qdc6qh88lkdaf3899gnntk7q293ufq8flkvmnsa59zx3sv9a05qwsdh5h09';
+            $joinAddr = isset($_GET['addr']) ? trim($_GET['addr']) : '';
+            $joinHash160 = '';
+            $joinMetadata = '';
+            $joinError = '';
+
+            if ($joinAddr !== '') {
+                // Validate and convert BATHRON address to hash160
+                $result = trim(shell_exec("python3 -c \"
+import hashlib, sys
+ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+def b58decode(s):
+    n = 0
+    for c in s:
+        if c not in ALPHABET: raise ValueError('bad char')
+        n = n * 58 + ALPHABET.index(c)
+    return bytes.fromhex('%050x' % n)
+try:
+    d = b58decode('$joinAddr')
+    payload, cksum = d[:-4], d[-4:]
+    if hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4] != cksum:
+        print('ERROR:bad checksum')
+    else:
+        print(payload[1:].hex())
+except: print('ERROR:invalid address')
+\" 2>/dev/null"));
+
+                if (str_starts_with($result, 'ERROR:') || strlen($result) !== 40) {
+                    $joinError = 'Invalid BATHRON address';
+                } else {
+                    $joinHash160 = $result;
+                    $joinMetadata = '42415448524f4e' . '01' . '54' . $joinHash160;
+                }
+            }
+            ?>
+
+            <div class="card">
+                <div class="card-header">Join BATHRON — Burn BTC to mint M0</div>
+                <div style="padding: 30px;">
+                    <p style="color: var(--text-secondary); margin-bottom: 25px; line-height: 1.6;">
+                        Burn BTC on Signet to receive M0BTC on BATHRON testnet. 1 satoshi burned = 1 M0 minted.<br>
+                        The burn is <strong>irreversible</strong> — BTC is sent to a provably unspendable address.
+                    </p>
+
+                    <!-- Step 1: Enter address -->
+                    <form method="get" style="margin-bottom: 30px;">
+                        <input type="hidden" name="tab" value="join">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label style="color: var(--text-primary); white-space: nowrap; font-weight: bold;">Your BATHRON address:</label>
+                            <input type="text" name="addr" value="<?= htmlspecialchars($joinAddr) ?>"
+                                placeholder="yJYD2bfYYBe6qAojSzMKX949H7QoQifNAo"
+                                style="flex: 1; padding: 10px 14px; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; font-family: monospace; font-size: 14px;">
+                            <button type="submit" style="padding: 10px 24px; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Generate</button>
+                        </div>
+                        <?php if ($joinError): ?>
+                            <p style="color: #ef4444; margin-top: 10px;"><?= htmlspecialchars($joinError) ?></p>
+                        <?php endif; ?>
+                    </form>
+
+                    <?php if ($joinMetadata): ?>
+                    <!-- Step 2: Show burn details -->
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <p style="color: var(--accent); font-weight: bold; margin-bottom: 15px; font-size: 16px;">Your burn details</p>
+
+                        <div style="display: grid; gap: 12px;">
+                            <div>
+                                <span style="color: var(--text-secondary); font-size: 12px;">BURN ADDRESS (send BTC here)</span>
+                                <div style="font-family: monospace; font-size: 13px; color: var(--text-primary); word-break: break-all; background: var(--bg-secondary); padding: 8px 12px; border-radius: 4px; margin-top: 4px; cursor: pointer;" onclick="navigator.clipboard.writeText('<?= $burnAddr ?>')" title="Click to copy"><?= $burnAddr ?></div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary); font-size: 12px;">OP_RETURN METADATA (include in your TX)</span>
+                                <div style="font-family: monospace; font-size: 13px; color: var(--text-primary); word-break: break-all; background: var(--bg-secondary); padding: 8px 12px; border-radius: 4px; margin-top: 4px; cursor: pointer;" onclick="navigator.clipboard.writeText('<?= $joinMetadata ?>')" title="Click to copy"><?= $joinMetadata ?></div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary); font-size: 12px;">DESTINATION (M0 will be minted here)</span>
+                                <div style="font-family: monospace; font-size: 13px; color: var(--text-primary); background: var(--bg-secondary); padding: 8px 12px; border-radius: 4px; margin-top: 4px;"><?= htmlspecialchars($joinAddr) ?></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: bitcoin-cli command -->
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <p style="color: var(--accent); font-weight: bold; margin-bottom: 15px;">Quick command (bitcoin-cli)</p>
+                        <pre style="background: #0d1117; color: #c9d1d9; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 0;"># Create burn TX (replace AMOUNT with BTC amount, e.g. 0.0001)
+bitcoin-cli -signet createrawtransaction "[]" \
+  "{\"data\":\"<?= $joinMetadata ?>\",\"<?= $burnAddr ?>\":AMOUNT}"
+
+# Then fund, sign, and broadcast:
+bitcoin-cli -signet fundrawtransaction "RAW_TX"
+bitcoin-cli -signet signrawtransactionwithwallet "FUNDED_TX"
+bitcoin-cli -signet sendrawtransaction "SIGNED_TX"</pre>
+                    </div>
+
+                    <!-- Step 4: Or use the script -->
+                    <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+                        <p style="color: var(--accent); font-weight: bold; margin-bottom: 15px;">Or use the automated script</p>
+                        <pre style="background: #0d1117; color: #c9d1d9; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 0;"># One command — handles everything automatically
+./burn_signet.sh <?= htmlspecialchars($joinAddr) ?> 10000</pre>
+                        <p style="color: var(--text-secondary); font-size: 13px; margin-top: 10px;">
+                            Get it: <a href="https://github.com/AdonisPhusis/bathron-node-tools" target="_blank" style="color: var(--accent);">github.com/AdonisPhusis/bathron-node-tools</a>
+                        </p>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Info section -->
+                    <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border);">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; color: var(--text-secondary); font-size: 13px;">
+                            <div>
+                                <p style="color: var(--text-primary); font-weight: bold; margin-bottom: 8px;">What happens</p>
+                                <ol style="margin-left: 16px; line-height: 1.8;">
+                                    <li>You send BTC to the burn address</li>
+                                    <li>Wait 6 confirmations (~1 hour)</li>
+                                    <li>Burn is auto-detected by the network</li>
+                                    <li>M0BTC minted 1:1 to your address</li>
+                                </ol>
+                            </div>
+                            <div>
+                                <p style="color: var(--text-primary); font-weight: bold; margin-bottom: 8px;">Requirements</p>
+                                <ul style="margin-left: 16px; line-height: 1.8;">
+                                    <li>Min burn: <strong>1,000 sats</strong></li>
+                                    <li>Network: BTC <strong>Signet</strong></li>
+                                    <li>Conversion: <strong>1:1</strong> (1 sat = 1 M0)</li>
+                                    <li>Fee: <strong>0</strong> (claim is free)</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <p style="color: var(--text-primary); font-weight: bold; margin-bottom: 8px;">Get Signet BTC</p>
+                                <ul style="margin-left: 16px; line-height: 1.8;">
+                                    <li><a href="https://signetfaucet.com" target="_blank" style="color: var(--accent);">signetfaucet.com</a></li>
+                                    <li><a href="https://alt.signetfaucet.com" target="_blank" style="color: var(--accent);">alt.signetfaucet.com</a></li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
