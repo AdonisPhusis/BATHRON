@@ -44,11 +44,9 @@ DIST_DOCS = \
   README.md \
   $(wildcard doc/*.md) \
   $(wildcard doc/release-notes/*.md)
-DIST_CONTRIB = $(top_srcdir)/contrib/hu-cli.bash-completion \
-	       $(top_srcdir)/contrib/hu-tx.bash-completion \
-	       $(top_srcdir)/contrib/hud.bash-completion \
-           $(top_srcdir)/contrib/init \
-           $(top_srcdir)/contrib/install_db4.sh
+DIST_CONTRIB = \
+           $(top_srcdir)/contrib/devtools \
+           $(top_srcdir)/contrib/seeds
 
 DIST_SHARE = \
            $(top_srcdir)/share/genbuild.sh \
