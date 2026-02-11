@@ -65,7 +65,7 @@ fast_deploy() {
     fi
 
     # Create remote dirs in one command
-    $SSH ubuntu@$TARGET_IP "mkdir -p ~/pna-sdk/{static/css,static/js,scripts} ~/bathron/bin ~/.bathron"
+    $SSH ubuntu@$TARGET_IP "mkdir -p ~/pna-sdk/{static/css,static/js,scripts,routes} ~/bathron/bin ~/.bathron"
 
     # Deploy SDK files using rsync (only copies changed files)
     log_info "Syncing SDK files..."
@@ -92,6 +92,15 @@ fast_deploy() {
             -e "ssh -i $SSH_KEY $SSH_OPTS" \
             "$SDK_DIR/sdk/" \
             ubuntu@$TARGET_IP:~/pna-sdk/sdk/
+    fi
+
+    # Deploy route modules (extracted from server.py)
+    if [ -d "$SDK_DIR/routes" ]; then
+        log_info "Syncing route modules..."
+        rsync -avz \
+            -e "ssh -i $SSH_KEY $SSH_OPTS" \
+            "$SDK_DIR/routes/" \
+            ubuntu@$TARGET_IP:~/pna-sdk/routes/
     fi
 
     # Deploy BATHRON binaries (skip if unchanged)
