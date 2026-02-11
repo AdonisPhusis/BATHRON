@@ -32,7 +32,7 @@ esac
 
 # Configuration
 SSH_KEY="$HOME/.ssh/id_ed25519_vps"
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 SSH="ssh -i $SSH_KEY $SSH_OPTS"
 SCP="scp -i $SSH_KEY $SSH_OPTS -C"
 
@@ -67,13 +67,9 @@ fast_deploy() {
     # Create remote dirs in one command
     $SSH ubuntu@$TARGET_IP "mkdir -p ~/pna-sdk/{static/css,static/js,scripts,routes} ~/bathron/bin ~/.bathron"
 
-    # Deploy SDK files using rsync (only copies changed files)
+    # Deploy SDK core files using SCP (force overwrite to avoid rsync caching issues)
     log_info "Syncing SDK files..."
-    rsync -avz --delete \
-        -e "ssh -i $SSH_KEY $SSH_OPTS" \
-        "$SDK_DIR/server.py" \
-        "$SDK_DIR/requirements.txt" \
-        ubuntu@$TARGET_IP:~/pna-sdk/
+    $SCP "$SDK_DIR/server.py" "$SDK_DIR/requirements.txt" ubuntu@$TARGET_IP:~/pna-sdk/
 
     rsync -avz \
         -e "ssh -i $SSH_KEY $SSH_OPTS" \
@@ -117,8 +113,22 @@ fast_deploy() {
 
     # Kill any existing server and start fresh
     log_info "Restarting server (LP_ID=$LP_ID)..."
-    # Kill whatever holds port 8080 (including rogue processes owned by root)
-    $SSH ubuntu@$TARGET_IP "sudo kill -9 \$(sudo lsof -t -i:${SDK_PORT} 2>/dev/null) 2>/dev/null; pkill -9 -f uvicorn 2>/dev/null; pkill -9 -f 'server:app' 2>/dev/null; sleep 3" || true
+    # Aggressively kill ALL related processes + stop Docker containers on same port
+    $SSH ubuntu@$TARGET_IP "
+        # Stop Docker container if running (pna-lp)
+        docker stop pna-lp 2>/dev/null && echo 'Stopped Docker container pna-lp' || true
+        docker rm pna-lp 2>/dev/null || true
+        # Kill by port
+        sudo fuser -k ${SDK_PORT}/tcp 2>/dev/null || true
+        # Kill by name patterns
+        pkill -9 -f 'uvicorn.*server' 2>/dev/null || true
+        pkill -9 -f 'python.*server:app' 2>/dev/null || true
+        pkill -9 -f 'python.*uvicorn' 2>/dev/null || true
+        # Clear Python bytecode cache
+        find ~/pna-sdk -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+        find ~/pna-sdk -name '*.pyc' -delete 2>/dev/null || true
+        sleep 2
+    " || true
 
     # Start server via a wrapper script to fully detach from SSH
     $SSH ubuntu@$TARGET_IP "cat > /tmp/start_lp.sh << 'SCRIPT'
