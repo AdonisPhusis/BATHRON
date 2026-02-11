@@ -1,0 +1,24 @@
+[Unit]
+Description=P&A Liquidity Provider Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pna-lp
+ExecStart=/home/ubuntu/pna-lp/venv/bin/python3 server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pna-lp
+
+# Environment — override LP_ID and LP_NAME per VPS
+Environment=HOME=/home/ubuntu
+Environment=LP_ID=lp_pna_01
+Environment=LP_NAME=pna LP
+Environment=PORT=8080
+
+[Install]
+WantedBy=multi-user.target

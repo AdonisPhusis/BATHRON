@@ -1,0 +1,25 @@
+[Unit]
+Description=BATHRON BTC Header Sync Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+# The 'once' sub-command runs a single sync cycle and exits.
+# We use a wrapper that loops with sleep, matching the original daemon behavior.
+ExecStart=/bin/bash -c 'while true; do /home/ubuntu/BATHRON/contrib/testnet/btc_header_daemon.sh once 2>&1; sleep 120; done'
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=btc-header-daemon
+
+# Environment
+Environment=HOME=/home/ubuntu
+Environment=BTC_CLI=/home/ubuntu/bitcoin-27.0/bin/bitcoin-cli
+Environment=BTC_CONF=/home/ubuntu/.bitcoin-signet/bitcoin.conf
+Environment=BATHRON_CLI=/home/ubuntu/bathron-cli
+
+[Install]
+WantedBy=multi-user.target
