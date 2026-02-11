@@ -444,22 +444,78 @@ full_setup() {
 # MAIN
 # =============================================================================
 
-case "${1:-setup}" in
-    setup)    full_setup ;;
-    status)   check_status ;;
-    btc)      install_btc && setup_btc && create_btc_wallet ;;
-    evm)      create_evm_wallet ;;
-    htlc3s)   copy_htlc3s ;;
-    wallet)   update_wallet_role ;;
-    *)
-        echo "Usage: $0 {setup|status|btc|evm|htlc3s|wallet}"
+remove_btc() {
+    echo -e "\n${BLUE}=== Removing BTC Signet from LP2 ===${NC}\n"
+
+    log_info "Step 1/3: Stopping bitcoind..."
+    $SSH ubuntu@$OP2_IP '
+        BTC_CLI=~/bitcoin/bin/bitcoin-cli
+        if pgrep -x bitcoind > /dev/null; then
+            $BTC_CLI -signet -datadir=~/.bitcoin-signet stop 2>/dev/null || true
+            sleep 3
+            pkill -x bitcoind 2>/dev/null || true
+            sleep 2
+            if pgrep -x bitcoind > /dev/null; then
+                echo "WARNING: bitcoind still running, force kill"
+                kill -9 $(pgrep -x bitcoind) 2>/dev/null || true
+            fi
+            echo "bitcoind stopped"
+        else
+            echo "bitcoind not running"
+        fi
+    '
+    log_success "bitcoind stopped"
+
+    log_info "Step 2/3: Removing BTC Signet data (~23 GB)..."
+    $SSH ubuntu@$OP2_IP '
+        if [ -d ~/.bitcoin-signet ]; then
+            SIZE=$(du -sh ~/.bitcoin-signet 2>/dev/null | cut -f1)
+            rm -rf ~/.bitcoin-signet
+            echo "Removed ~/.bitcoin-signet ($SIZE freed)"
+        else
+            echo "~/.bitcoin-signet not found"
+        fi
+    '
+    log_success "Signet data removed"
+
+    log_info "Step 3/3: Removing BTC key file..."
+    $SSH ubuntu@$OP2_IP '
+        if [ -f ~/.BathronKey/btc.json ]; then
+            cat ~/.BathronKey/btc.json
+            rm -f ~/.BathronKey/btc.json
+            echo ""
+            echo "Removed ~/.BathronKey/btc.json"
+        else
+            echo "btc.json not found (already removed)"
+        fi
         echo ""
-        echo "  setup   - Full LP2 setup (BTC + EVM + htlc3s + wallet)"
-        echo "  status  - Check LP2 status"
-        echo "  btc     - Install + setup BTC Signet only"
-        echo "  evm     - Generate EVM wallet only"
-        echo "  htlc3s  - Copy htlc3s.json from OP1 only"
-        echo "  wallet  - Update wallet.json role only"
+        echo "--- Disk after cleanup ---"
+        df -h / | grep -v Filesystem
+        echo ""
+        echo "--- Remaining keys ---"
+        ls -la ~/.BathronKey/
+    '
+    log_success "BTC Signet fully removed from LP2"
+}
+
+case "${1:-setup}" in
+    setup)      full_setup ;;
+    status)     check_status ;;
+    btc)        install_btc && setup_btc && create_btc_wallet ;;
+    btc-remove) remove_btc ;;
+    evm)        create_evm_wallet ;;
+    htlc3s)     copy_htlc3s ;;
+    wallet)     update_wallet_role ;;
+    *)
+        echo "Usage: $0 {setup|status|btc|btc-remove|evm|htlc3s|wallet}"
+        echo ""
+        echo "  setup      - Full LP2 setup (BTC + EVM + htlc3s + wallet)"
+        echo "  status     - Check LP2 status"
+        echo "  btc        - Install + setup BTC Signet only"
+        echo "  btc-remove - Stop bitcoind + remove Signet data + btc.json"
+        echo "  evm        - Generate EVM wallet only"
+        echo "  htlc3s     - Copy htlc3s.json from OP1 only"
+        echo "  wallet     - Update wallet.json role only"
         exit 1
         ;;
 esac

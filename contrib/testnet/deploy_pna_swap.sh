@@ -105,6 +105,12 @@ deploy_files() {
     log_info "Copying images..."
     $SCP "$pna_DIR/img/"* ubuntu@$CORE_SDK_IP:~/pna/img/ 2>/dev/null || true
 
+    # Copy config files (lp-config.json, etc.)
+    if [ -f "$pna_DIR/lp-config.json" ]; then
+        log_info "Copying lp-config.json..."
+        $SCP "$pna_DIR/lp-config.json" ubuntu@$CORE_SDK_IP:~/pna/
+    fi
+
     log_success "Files deployed to ~/pna/"
 }
 
