@@ -2254,6 +2254,27 @@ bool CheckHTLC3SClaim(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-htlc3sclaim-preimage-mismatch");
     }
 
+    // Verify output amount matches HTLC amount (prevents M1 inflation — Invariant A6)
+    if (htlc.HasCovenant()) {
+        // Covenant claim: vout[0] = htlc.amount - CTV_FIXED_FEE → LP_OUT
+        if (CTV_FIXED_FEE >= htlc.amount) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-htlc3sclaim-covenant-fee-exceeds-amount");
+        }
+        CAmount expectedAmount = htlc.amount - CTV_FIXED_FEE;
+        if (tx.vout[0].nValue != expectedAmount) {
+            LogPrint(BCLog::HTLC, "CheckHTLC3SClaim: amount mismatch for covenant HTLC3S %s: expected=%lld got=%lld\n",
+                     htlcOutpoint.ToString(), expectedAmount, tx.vout[0].nValue);
+            return state.DoS(100, false, REJECT_INVALID, "bad-htlc3sclaim-amount-mismatch");
+        }
+    } else {
+        // Standard claim: vout[0] = htlc.amount
+        if (tx.vout[0].nValue != htlc.amount) {
+            LogPrint(BCLog::HTLC, "CheckHTLC3SClaim: amount mismatch for HTLC3S %s: expected=%lld got=%lld\n",
+                     htlcOutpoint.ToString(), htlc.amount, tx.vout[0].nValue);
+            return state.DoS(100, false, REJECT_INVALID, "bad-htlc3sclaim-amount-mismatch");
+        }
+    }
+
     LogPrint(BCLog::HTLC, "CheckHTLC3SClaim: 3 preimages verified for HTLC3S %s\n", htlcOutpoint.ToString());
     return true;
 }
@@ -2300,16 +2321,33 @@ bool ApplyHTLC3SClaim(const CTransaction& tx,
     htlcBatch.WriteHTLC3S(htlc);
     htlcBatch.WriteResolve3SUndo(txid, undoData);
 
-    // Create new M1 receipt for claimer
-    M1Receipt newReceipt;
-    newReceipt.outpoint = COutPoint(txid, 0);
-    newReceipt.amount = tx.vout[0].nValue;
-    newReceipt.nCreateHeight = nHeight;
-    settlementBatch.WriteReceipt(newReceipt);
+    if (htlc.HasCovenant()) {
+        // Covenant claim (Settlement Pivot): create M1Receipt for LP_OUT (covenantDestKeyID)
+        // The covenant script (OP_TEMPLATEVERIFY) already enforced that the TX output
+        // goes to the correct destination with correct amount at script execution time.
+        // Here we just create the M1 receipt at the output.
+        M1Receipt newReceipt;
+        newReceipt.outpoint = COutPoint(txid, 0);
+        newReceipt.amount = tx.vout[0].nValue;
+        newReceipt.nCreateHeight = nHeight;
+        settlementBatch.WriteReceipt(newReceipt);
 
-    LogPrint(BCLog::HTLC, "ApplyHTLC3SClaim: %s htlc=%s new_receipt=%s amount=%lld (3-secret)\n",
-             txid.ToString().substr(0, 16), htlcOutpoint.ToString(),
-             newReceipt.outpoint.ToString(), newReceipt.amount);
+        LogPrint(BCLog::HTLC, "ApplyHTLC3SClaim: PIVOT %s htlc3s=%s receipt=%s amount=%lld dest=%s\n",
+                 txid.ToString().substr(0, 16), htlcOutpoint.ToString(),
+                 newReceipt.outpoint.ToString(), newReceipt.amount,
+                 HexStr(Span<const unsigned char>(htlc.covenantDestKeyID.begin(), 20)));
+    } else {
+        // Standard claim: create M1Receipt for claimer
+        M1Receipt newReceipt;
+        newReceipt.outpoint = COutPoint(txid, 0);
+        newReceipt.amount = tx.vout[0].nValue;
+        newReceipt.nCreateHeight = nHeight;
+        settlementBatch.WriteReceipt(newReceipt);
+
+        LogPrint(BCLog::HTLC, "ApplyHTLC3SClaim: %s htlc3s=%s new_receipt=%s amount=%lld (3-secret)\n",
+                 txid.ToString().substr(0, 16), htlcOutpoint.ToString(),
+                 newReceipt.outpoint.ToString(), newReceipt.amount);
+    }
 
     return true;
 }
@@ -2398,6 +2436,14 @@ bool CheckHTLC3SRefund(const CTransaction& tx,
     // Must be past expiry
     if (nHeight < htlc.expiryHeight) {
         return state.DoS(100, false, REJECT_INVALID, "bad-htlc3srefund-not-expired");
+    }
+
+    // Verify output amount matches HTLC amount (prevents M1 inflation — Invariant A6)
+    // Refund returns the FULL htlc.amount (no covenant fee, no settlement occurred)
+    if (tx.vout[0].nValue != htlc.amount) {
+        LogPrint(BCLog::HTLC, "CheckHTLC3SRefund: amount mismatch for HTLC3S %s: expected=%lld got=%lld\n",
+                 htlcOutpoint.ToString(), htlc.amount, tx.vout[0].nValue);
+        return state.DoS(100, false, REJECT_INVALID, "bad-htlc3srefund-amount-mismatch");
     }
 
     return true;

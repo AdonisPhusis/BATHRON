@@ -2415,9 +2415,23 @@ static UniValue htlc3s_claim(const JSONRPCRequest& request)
 
     mtx.vin.emplace_back(htlcOutpoint);
 
-    // Output: new M1 receipt to claimer
-    CScript outputScript = GetScriptForDestination(htlc.claimKeyID);
-    mtx.vout.emplace_back(htlc.amount, outputScript);
+    // Output: covenant-aware (LP_OUT receipt or standard claimer receipt)
+    if (htlc.HasCovenant()) {
+        // Covenant: output must go to covenantDestKeyID with amount - CTV_FIXED_FEE
+        // This matches the template committed at create time via htlc3s_compute_c3
+        if (CTV_FIXED_FEE >= htlc.amount) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("HTLC3S amount (%lld) must exceed covenant fee (%lld)",
+                          (long long)htlc.amount, (long long)CTV_FIXED_FEE));
+        }
+        CAmount outputAmount = htlc.amount - CTV_FIXED_FEE;
+        CScript outputScript = GetScriptForDestination(htlc.covenantDestKeyID);
+        mtx.vout.emplace_back(outputAmount, outputScript);
+    } else {
+        // Standard: M1 Receipt to claimer
+        CScript outputScript = GetScriptForDestination(htlc.claimKeyID);
+        mtx.vout.emplace_back(htlc.amount, outputScript);
+    }
 
     // Sign with claim key and 3 preimages
     CTransaction txToSign(mtx);
@@ -2459,8 +2473,18 @@ static UniValue htlc3s_claim(const JSONRPCRequest& request)
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", hashTx.GetHex());
-    result.pushKV("receipt_outpoint", strprintf("%s:0", hashTx.GetHex()));
-    result.pushKV("amount", ValueFromAmount(htlc.amount));
+
+    if (htlc.HasCovenant()) {
+        result.pushKV("type", "pivot");
+        result.pushKV("receipt_outpoint", strprintf("%s:0", hashTx.GetHex()));
+        result.pushKV("amount", ValueFromAmount(htlc.amount - CTV_FIXED_FEE));
+        result.pushKV("covenant_fee", ValueFromAmount(CTV_FIXED_FEE));
+        result.pushKV("covenant_dest", EncodeDestination(htlc.covenantDestKeyID));
+    } else {
+        result.pushKV("type", "standard");
+        result.pushKV("receipt_outpoint", strprintf("%s:0", hashTx.GetHex()));
+        result.pushKV("amount", ValueFromAmount(htlc.amount));
+    }
 
     return result;
 }
