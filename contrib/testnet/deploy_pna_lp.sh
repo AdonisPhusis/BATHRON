@@ -108,7 +108,8 @@ fast_deploy() {
 
     # Kill any existing server and start fresh
     log_info "Restarting server (LP_ID=$LP_ID)..."
-    $SSH ubuntu@$TARGET_IP "pkill -9 -f uvicorn 2>/dev/null; sleep 1; echo 'Stopped'" || true
+    # Kill whatever holds port 8080 (including rogue processes owned by root)
+    $SSH ubuntu@$TARGET_IP "sudo kill -9 \$(sudo lsof -t -i:${SDK_PORT} 2>/dev/null) 2>/dev/null; pkill -9 -f uvicorn 2>/dev/null; pkill -9 -f 'server:app' 2>/dev/null; sleep 3" || true
 
     # Start server via a wrapper script to fully detach from SSH
     $SSH ubuntu@$TARGET_IP "cat > /tmp/start_lp.sh << 'SCRIPT'
