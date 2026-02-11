@@ -2115,9 +2115,21 @@ bool ApplyHTLC3SCreate(const CTransaction& tx,
     htlc.hashlock_lp2 = payload.hashlock_lp2;
     htlc.sourceReceipt = receiptOutpoint;
     htlc.amount = receipt.amount;
-    htlc.redeemScript = CreateConditional3SScript(
-        payload.hashlock_user, payload.hashlock_lp1, payload.hashlock_lp2,
-        payload.expiryHeight, payload.claimKeyID, payload.refundKeyID);
+
+    // Use covenant script if payload v2 with template commitment
+    if (payload.HasCovenant()) {
+        htlc.redeemScript = CreateConditional3SWithCovenantScript(
+            payload.hashlock_user, payload.hashlock_lp1, payload.hashlock_lp2,
+            payload.expiryHeight, payload.claimKeyID, payload.refundKeyID,
+            payload.templateCommitment);
+        htlc.templateCommitment = payload.templateCommitment;
+        htlc.covenantDestKeyID = payload.covenantDestKeyID;
+    } else {
+        htlc.redeemScript = CreateConditional3SScript(
+            payload.hashlock_user, payload.hashlock_lp1, payload.hashlock_lp2,
+            payload.expiryHeight, payload.claimKeyID, payload.refundKeyID);
+    }
+
     htlc.claimKeyID = payload.claimKeyID;
     htlc.refundKeyID = payload.refundKeyID;
     htlc.createHeight = nHeight;

@@ -1948,6 +1948,11 @@ static UniValue htlc3s_get(const JSONRPCRequest& request)
     result.pushKV("expiry_height", (int)htlc.expiryHeight);
     result.pushKV("claim_address", EncodeDestination(htlc.claimKeyID));
     result.pushKV("refund_address", EncodeDestination(htlc.refundKeyID));
+    result.pushKV("has_covenant", htlc.HasCovenant());
+    if (htlc.HasCovenant()) {
+        result.pushKV("template_commitment", htlc.templateCommitment.GetHex());
+        result.pushKV("covenant_dest_address", EncodeDestination(htlc.covenantDestKeyID));
+    }
     result.pushKV("status", htlc.IsActive() ? "active" :
                            (htlc.status == HTLCStatus::CLAIMED ? "claimed" : "refunded"));
     if (!htlc.resolveTxid.IsNull()) {
@@ -2078,17 +2083,19 @@ static UniValue htlc3s_find_by_hashlock(const JSONRPCRequest& request)
  */
 static UniValue htlc3s_create(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() < 5 || request.params.size() > 6) {
+    if (request.fHelp || request.params.size() < 5 || request.params.size() > 8) {
         throw std::runtime_error(
-            "htlc3s_create \"receipt_outpoint\" \"hashlock_user\" \"hashlock_lp1\" \"hashlock_lp2\" \"claim_address\" ( expiry_blocks )\n"
+            "htlc3s_create \"receipt_outpoint\" \"hashlock_user\" \"hashlock_lp1\" \"hashlock_lp2\" \"claim_address\" ( expiry_blocks \"template_commitment\" \"covenant_dest_address\" )\n"
             "\nLock an M1 receipt in a 3-secret HTLC for FlowSwap (HTLC_CREATE_3S).\n"
             "\nArguments:\n"
-            "1. \"receipt_outpoint\" (string, required) M1 Receipt outpoint (txid:vout)\n"
-            "2. \"hashlock_user\"    (string, required) SHA256 hashlock user (hex, 32 bytes)\n"
-            "3. \"hashlock_lp1\"     (string, required) SHA256 hashlock lp1 (hex, 32 bytes)\n"
-            "4. \"hashlock_lp2\"     (string, required) SHA256 hashlock lp2 (hex, 32 bytes)\n"
-            "5. \"claim_address\"    (string, required) Address that can claim with 3 preimages\n"
-            "6. expiry_blocks        (numeric, optional, default=288) Blocks until refundable\n"
+            "1. \"receipt_outpoint\"      (string, required) M1 Receipt outpoint (txid:vout)\n"
+            "2. \"hashlock_user\"         (string, required) SHA256 hashlock user (hex, 32 bytes)\n"
+            "3. \"hashlock_lp1\"          (string, required) SHA256 hashlock lp1 (hex, 32 bytes)\n"
+            "4. \"hashlock_lp2\"          (string, required) SHA256 hashlock lp2 (hex, 32 bytes)\n"
+            "5. \"claim_address\"         (string, required) Address that can claim with 3 preimages\n"
+            "6. expiry_blocks             (numeric, optional, default=288) Blocks until refundable\n"
+            "7. \"template_commitment\"   (string, optional) C3 covenant hash (hex, 32 bytes) for per-leg\n"
+            "8. \"covenant_dest_address\" (string, optional) LP_OUT address forced by covenant\n"
             "\nResult:\n"
             "{\n"
             "  \"txid\": \"hex\",\n"
@@ -2098,6 +2105,7 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("htlc3s_create", "\"abc123:1\" \"hash_user\" \"hash_lp1\" \"hash_lp2\" \"yClaimAddr\"")
+            + HelpExampleCli("htlc3s_create", "\"abc123:1\" \"hash_user\" \"hash_lp1\" \"hash_lp2\" \"yClaimAddr\" 120 \"c3_hex\" \"yLpOutAddr\"")
         );
     }
 
@@ -2165,6 +2173,38 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
         }
     }
 
+    // Parse optional covenant params (per-leg mode)
+    uint256 templateCommitment;
+    CKeyID covenantDestKeyID;
+    bool hasCovenant = false;
+
+    if (request.params.size() > 6 && !request.params[6].isNull()) {
+        std::string commitHex = request.params[6].get_str();
+        if (!commitHex.empty()) {
+            std::vector<unsigned char> commitBytes = ParseHex(commitHex);
+            if (commitBytes.size() != 32) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "template_commitment must be 32-byte hex");
+            }
+            memcpy(templateCommitment.begin(), commitBytes.data(), 32);
+            hasCovenant = true;
+        }
+    }
+
+    if (hasCovenant) {
+        if (request.params.size() <= 7 || request.params[7].isNull()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "covenant_dest_address required when template_commitment is set");
+        }
+        CTxDestination covDest = DecodeDestination(request.params[7].get_str());
+        if (!IsValidDestination(covDest)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid covenant_dest_address");
+        }
+        const CKeyID* covKeyID = boost::get<CKeyID>(&covDest);
+        if (!covKeyID) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "covenant_dest_address must be P2PKH");
+        }
+        covenantDestKeyID = *covKeyID;
+    }
+
     int currentHeight = chainActive.Height();
     uint32_t expiryHeight = currentHeight + expiryBlocks;
 
@@ -2188,9 +2228,16 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
     }
     CKeyID refundKeyID = refundPubKey.GetID();
 
-    // Create 3-secret conditional script
-    CScript redeemScript = CreateConditional3SScript(
-        hashlock_user, hashlock_lp1, hashlock_lp2, expiryHeight, *claimKeyID, refundKeyID);
+    // Create 3-secret conditional script (with or without covenant)
+    CScript redeemScript;
+    if (hasCovenant) {
+        redeemScript = CreateConditional3SWithCovenantScript(
+            hashlock_user, hashlock_lp1, hashlock_lp2, expiryHeight,
+            *claimKeyID, refundKeyID, templateCommitment);
+    } else {
+        redeemScript = CreateConditional3SScript(
+            hashlock_user, hashlock_lp1, hashlock_lp2, expiryHeight, *claimKeyID, refundKeyID);
+    }
 
     // Create P2SH scriptPubKey
     CScriptID scriptID(redeemScript);
@@ -2203,13 +2250,17 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
 
     // Create payload
     HTLC3SCreatePayload payload;
-    payload.nVersion = HTLC3S_CREATE_PAYLOAD_VERSION;
+    payload.nVersion = hasCovenant ? HTLC3S_CREATE_PAYLOAD_VERSION_CTV : HTLC3S_CREATE_PAYLOAD_VERSION;
     payload.hashlock_user = hashlock_user;
     payload.hashlock_lp1 = hashlock_lp1;
     payload.hashlock_lp2 = hashlock_lp2;
     payload.expiryHeight = expiryHeight;
     payload.claimKeyID = *claimKeyID;
     payload.refundKeyID = refundKeyID;
+    if (hasCovenant) {
+        payload.templateCommitment = templateCommitment;
+        payload.covenantDestKeyID = covenantDestKeyID;
+    }
 
     CDataStream ssPayload(SER_NETWORK, PROTOCOL_VERSION);
     ssPayload << payload;
@@ -2259,6 +2310,11 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
     result.pushKV("expiry_height", (int)expiryHeight);
     result.pushKV("claim_address", EncodeDestination(*claimKeyID));
     result.pushKV("refund_address", EncodeDestination(refundKeyID));
+    result.pushKV("has_covenant", hasCovenant);
+    if (hasCovenant) {
+        result.pushKV("template_commitment", templateCommitment.GetHex());
+        result.pushKV("covenant_dest_address", EncodeDestination(covenantDestKeyID));
+    }
 
     return result;
 }
@@ -2803,6 +2859,61 @@ static UniValue gettemplatehash(const JSONRPCRequest& request)
     return result;
 }
 
+/**
+ * htlc3s_compute_c3 - Compute C3 template hash for per-leg covenant
+ *
+ * Builds a template HTLC_CLAIM_3S transaction and returns its template hash.
+ * Used by LP_IN to create covenant HTLC that forces output → LP_OUT.
+ */
+static UniValue htlc3s_compute_c3(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 2) {
+        throw std::runtime_error(
+            "htlc3s_compute_c3 amount \"dest_address\"\n"
+            "\nCompute the C3 template hash for a per-leg covenant.\n"
+            "The hash commits to a HTLC_CLAIM_3S TX with one output to dest_address.\n"
+            "\nArguments:\n"
+            "1. amount          (numeric, required) M1 amount in sats (output = amount - fee)\n"
+            "2. \"dest_address\" (string, required) LP_OUT destination address (P2PKH)\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"template_hash\": \"hex\",\n"
+            "  \"output_amount\": n,\n"
+            "  \"fee\": n\n"
+            "}\n"
+        );
+    }
+
+    CAmount amount = request.params[0].get_int64();
+    if (amount <= CTV_FIXED_FEE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Amount must be greater than covenant fee");
+    }
+
+    CTxDestination dest = DecodeDestination(request.params[1].get_str());
+    if (!IsValidDestination(dest)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid dest_address");
+    }
+
+    // Build template claim TX
+    CMutableTransaction mtx;
+    mtx.nVersion = CTransaction::TxVersion::SAPLING;
+    mtx.nType = CTransaction::TxType::HTLC_CLAIM_3S;
+    mtx.nLockTime = 0;
+    mtx.vin.resize(1);
+    mtx.vin[0].nSequence = 0xFFFFFFFF;
+    mtx.vout.emplace_back(amount - CTV_FIXED_FEE, GetScriptForDestination(dest));
+
+    CTransaction tx(mtx);
+    uint256 hash = ComputeTemplateHash(tx);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("template_hash", hash.GetHex());
+    result.pushKV("output_amount", ValueFromAmount(amount - CTV_FIXED_FEE));
+    result.pushKV("fee", ValueFromAmount(CTV_FIXED_FEE));
+
+    return result;
+}
+
 // clang-format off
 static const CRPCCommand commands[] =
 { //  category       name                    actor (function)         okSafe argNames
@@ -2826,7 +2937,7 @@ static const CRPCCommand commands[] =
     { "htlc",        "htlc_extract_preimage",&htlc_extract_preimage,  true,  {"txid"} },
     // HTLC3S operations (BP02-3S FlowSwap)
     { "htlc3s",      "htlc3s_generate",      &htlc3s_generate,        true,  {} },
-    { "htlc3s",      "htlc3s_create",        &htlc3s_create,          false, {"receipt_outpoint", "hashlock_user", "hashlock_lp1", "hashlock_lp2", "claim_address", "expiry_blocks"} },
+    { "htlc3s",      "htlc3s_create",        &htlc3s_create,          false, {"receipt_outpoint", "hashlock_user", "hashlock_lp1", "hashlock_lp2", "claim_address", "expiry_blocks", "template_commitment", "covenant_dest_address"} },
     { "htlc3s",      "htlc3s_claim",         &htlc3s_claim,           false, {"htlc_outpoint", "preimage_user", "preimage_lp1", "preimage_lp2"} },
     { "htlc3s",      "htlc3s_refund",        &htlc3s_refund,          false, {"htlc_outpoint"} },
     { "htlc3s",      "htlc3s_list",          &htlc3s_list,            true,  {"status"} },
@@ -2835,6 +2946,7 @@ static const CRPCCommand commands[] =
     { "htlc3s",      "htlc3s_find_by_hashlock", &htlc3s_find_by_hashlock, true, {"hashlock", "type"} },
     // Covenant utilities (Phase 4)
     { "htlc",        "gettemplatehash",      &gettemplatehash,        true,  {"tx_hex"} },
+    { "htlc3s",      "htlc3s_compute_c3",   &htlc3s_compute_c3,     true,  {"amount", "dest_address"} },
 };
 // clang-format on
 

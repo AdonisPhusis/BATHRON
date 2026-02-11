@@ -63,7 +63,8 @@ static const uint32_t HTLC_MAX_EXPIRY_BLOCKS = 4320;     // Maximum ~3 days
 static const size_t HTLC_PREIMAGE_SIZE = 32;             // SHA256 preimage is 32 bytes
 static const uint8_t HTLC_CREATE_PAYLOAD_VERSION = 1;    // vExtraPayload version (no covenant)
 static const uint8_t HTLC_CREATE_PAYLOAD_VERSION_CTV = 2; // vExtraPayload v2 (with covenant)
-static const uint8_t HTLC3S_CREATE_PAYLOAD_VERSION = 1;  // 3S vExtraPayload version
+static const uint8_t HTLC3S_CREATE_PAYLOAD_VERSION = 1;  // 3S vExtraPayload version (no covenant)
+static const uint8_t HTLC3S_CREATE_PAYLOAD_VERSION_CTV = 2; // 3S vExtraPayload v2 (with covenant)
 static const CAmount CTV_FIXED_FEE = 200;                // Fixed fee for covenant PivotTx (sats)
 static const CAmount CTV_MAX_FEE = 10000;                // Maximum covenant fee (10k sats)
 
@@ -339,7 +340,13 @@ struct HTLC3SCreatePayload
     CKeyID claimKeyID;          // 20 bytes - Who can claim (with all 3 preimages)
     CKeyID refundKeyID;         // 20 bytes - Who can refund (after expiry)
 
+    // v2: Covenant fields (Per-Leg Settlement Pivot)
+    uint256 templateCommitment;     // C3 hash (null = no covenant)
+    CKeyID covenantDestKeyID;       // LP_OUT address forced by covenant
+
     HTLC3SCreatePayload() : nVersion(HTLC3S_CREATE_PAYLOAD_VERSION), expiryHeight(0) {}
+
+    bool HasCovenant() const { return !templateCommitment.IsNull(); }
 
     SERIALIZE_METHODS(HTLC3SCreatePayload, obj)
     {
@@ -350,11 +357,16 @@ struct HTLC3SCreatePayload
         READWRITE(obj.expiryHeight);
         READWRITE(obj.claimKeyID);
         READWRITE(obj.refundKeyID);
+        if (obj.nVersion >= HTLC3S_CREATE_PAYLOAD_VERSION_CTV) {
+            READWRITE(obj.templateCommitment);
+            READWRITE(obj.covenantDestKeyID);
+        }
     }
 
     bool IsTriviallyValid(std::string& strError) const
     {
-        if (nVersion != HTLC3S_CREATE_PAYLOAD_VERSION) {
+        if (nVersion != HTLC3S_CREATE_PAYLOAD_VERSION &&
+            nVersion != HTLC3S_CREATE_PAYLOAD_VERSION_CTV) {
             strError = "bad-htlc3s-version";
             return false;
         }
@@ -381,6 +393,13 @@ struct HTLC3SCreatePayload
         if (refundKeyID.IsNull()) {
             strError = "bad-htlc3s-null-refund";
             return false;
+        }
+        // v2 covenant validation
+        if (nVersion >= HTLC3S_CREATE_PAYLOAD_VERSION_CTV && HasCovenant()) {
+            if (covenantDestKeyID.IsNull()) {
+                strError = "bad-htlc3s-covenant-null-dest";
+                return false;
+            }
         }
         return true;
     }
@@ -415,6 +434,10 @@ struct HTLC3SRecord
     CKeyID claimKeyID;           // 20 bytes - Who can claim (with all 3 preimages)
     CKeyID refundKeyID;          // 20 bytes - Who can refund (after expiry)
 
+    // === Covenant (Per-Leg Settlement Pivot) ===
+    uint256 templateCommitment;  // 32 bytes - C3 (null = no covenant)
+    CKeyID covenantDestKeyID;    // 20 bytes - LP_OUT address forced by covenant
+
     // === Timing ===
     uint32_t createHeight;       // 4 bytes - Block when HTLC was created
     uint32_t expiryHeight;       // 4 bytes - Refund available after this height
@@ -432,6 +455,8 @@ struct HTLC3SRecord
 
     HTLC3SRecord() { SetNull(); }
 
+    bool HasCovenant() const { return !templateCommitment.IsNull(); }
+
     void SetNull()
     {
         htlcOutpoint.SetNull();
@@ -443,6 +468,8 @@ struct HTLC3SRecord
         redeemScript.clear();
         claimKeyID.SetNull();
         refundKeyID.SetNull();
+        templateCommitment.SetNull();
+        covenantDestKeyID.SetNull();
         createHeight = 0;
         expiryHeight = 0;
         status = HTLCStatus::ACTIVE;
@@ -484,6 +511,8 @@ struct HTLC3SRecord
         READWRITE(obj.redeemScript);
         READWRITE(obj.claimKeyID);
         READWRITE(obj.refundKeyID);
+        READWRITE(obj.templateCommitment);
+        READWRITE(obj.covenantDestKeyID);
         READWRITE(obj.createHeight);
         READWRITE(obj.expiryHeight);
         uint8_t statusByte = static_cast<uint8_t>(obj.status);

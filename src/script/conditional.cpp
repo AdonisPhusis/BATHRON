@@ -633,3 +633,175 @@ CScript CreateConditional3SSpendB(
     scriptSig << std::vector<unsigned char>(redeemScript.begin(), redeemScript.end());
     return scriptSig;
 }
+
+// =============================================================================
+// 3-Secret Conditional Script WITH Covenant (Per-Leg FlowSwap)
+// =============================================================================
+
+CScript CreateConditional3SWithCovenantScript(
+    const uint256& hashlock_user,
+    const uint256& hashlock_lp1,
+    const uint256& hashlock_lp2,
+    uint32_t timelock,
+    const CKeyID& claimDest,
+    const CKeyID& refundDest,
+    const uint256& templateCommitment)
+{
+    CScript script;
+
+    // Branch A: 3 secrets + covenant + signature
+    script << OP_IF;
+
+    // Verify S_user
+    script << OP_SIZE;
+    script << 32;
+    script << OP_EQUALVERIFY;
+    script << OP_SHA256;
+    script << ToByteVector(hashlock_user);
+    script << OP_EQUALVERIFY;
+
+    // Verify S_lp1
+    script << OP_SIZE;
+    script << 32;
+    script << OP_EQUALVERIFY;
+    script << OP_SHA256;
+    script << ToByteVector(hashlock_lp1);
+    script << OP_EQUALVERIFY;
+
+    // Verify S_lp2
+    script << OP_SIZE;
+    script << 32;
+    script << OP_EQUALVERIFY;
+    script << OP_SHA256;
+    script << ToByteVector(hashlock_lp2);
+    script << OP_EQUALVERIFY;
+
+    // Covenant: force spending TX to match template C3 (output → LP_OUT)
+    script << ToByteVector(templateCommitment);
+    script << OP_TEMPLATEVERIFY;
+    script << OP_DROP;
+
+    // Signature check for claim
+    script << OP_DUP;
+    script << OP_HASH160;
+    script << ToByteVector(claimDest);
+    script << OP_EQUALVERIFY;
+    script << OP_CHECKSIG;
+
+    // Branch B: timeout + signature (no covenant)
+    script << OP_ELSE;
+    script << CScriptNum(timelock);
+    script << OP_CHECKLOCKTIMEVERIFY;
+    script << OP_DROP;
+    script << OP_DUP;
+    script << OP_HASH160;
+    script << ToByteVector(refundDest);
+    script << OP_EQUALVERIFY;
+    script << OP_CHECKSIG;
+
+    script << OP_ENDIF;
+
+    return script;
+}
+
+bool IsConditional3SWithCovenantScript(const CScript& script)
+{
+    uint256 h1, h2, h3, c;
+    uint32_t t;
+    CKeyID a, b;
+    return DecodeConditional3SWithCovenantScript(script, h1, h2, h3, t, a, b, c);
+}
+
+bool DecodeConditional3SWithCovenantScript(
+    const CScript& script,
+    uint256& hashlock_user,
+    uint256& hashlock_lp1,
+    uint256& hashlock_lp2,
+    uint32_t& timelock,
+    CKeyID& claimDest,
+    CKeyID& refundDest,
+    uint256& templateCommitment)
+{
+    std::vector<unsigned char> data;
+    opcodetype opcode;
+    CScript::const_iterator it = script.begin();
+
+    // OP_IF
+    if (!script.GetOp(it, opcode) || opcode != OP_IF)
+        return false;
+
+    // === S_user verification ===
+    if (!script.GetOp(it, opcode) || opcode != OP_SIZE) return false;
+    if (!script.GetOp(it, opcode, data)) return false;
+    if (data.empty() || CScriptNum(data, true).getint() != 32) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_SHA256) return false;
+    if (!script.GetOp(it, opcode, data) || data.size() != 32) return false;
+    memcpy(hashlock_user.begin(), data.data(), 32);
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+
+    // === S_lp1 verification ===
+    if (!script.GetOp(it, opcode) || opcode != OP_SIZE) return false;
+    if (!script.GetOp(it, opcode, data)) return false;
+    if (data.empty() || CScriptNum(data, true).getint() != 32) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_SHA256) return false;
+    if (!script.GetOp(it, opcode, data) || data.size() != 32) return false;
+    memcpy(hashlock_lp1.begin(), data.data(), 32);
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+
+    // === S_lp2 verification ===
+    if (!script.GetOp(it, opcode) || opcode != OP_SIZE) return false;
+    if (!script.GetOp(it, opcode, data)) return false;
+    if (data.empty() || CScriptNum(data, true).getint() != 32) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_SHA256) return false;
+    if (!script.GetOp(it, opcode, data) || data.size() != 32) return false;
+    memcpy(hashlock_lp2.begin(), data.data(), 32);
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+
+    // === Covenant: <C3> OP_TEMPLATEVERIFY OP_DROP ===
+    if (!script.GetOp(it, opcode, data) || data.size() != 32) return false;
+    memcpy(templateCommitment.begin(), data.data(), 32);
+    if (!script.GetOp(it, opcode) || opcode != OP_TEMPLATEVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_DROP) return false;
+
+    // === Claim signature verification ===
+    if (!script.GetOp(it, opcode) || opcode != OP_DUP) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_HASH160) return false;
+    if (!script.GetOp(it, opcode, data) || data.size() != 20) return false;
+    claimDest = CKeyID(uint160(data));
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_CHECKSIG) return false;
+
+    // OP_ELSE
+    if (!script.GetOp(it, opcode) || opcode != OP_ELSE) return false;
+
+    // timelock
+    if (!script.GetOp(it, opcode, data)) return false;
+    try {
+        CScriptNum num(data, true, 5);
+        int lockValue = num.getint();
+        if (lockValue <= 0) return false;
+        timelock = static_cast<uint32_t>(lockValue);
+    } catch (const scriptnum_error&) {
+        return false;
+    }
+
+    if (!script.GetOp(it, opcode) || opcode != OP_CHECKLOCKTIMEVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_DROP) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_DUP) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_HASH160) return false;
+    if (!script.GetOp(it, opcode, data) || data.size() != 20) return false;
+    refundDest = CKeyID(uint160(data));
+    if (!script.GetOp(it, opcode) || opcode != OP_EQUALVERIFY) return false;
+    if (!script.GetOp(it, opcode) || opcode != OP_CHECKSIG) return false;
+
+    // OP_ENDIF
+    if (!script.GetOp(it, opcode) || opcode != OP_ENDIF) return false;
+
+    // Verify end of script
+    if (it != script.end()) return false;
+
+    return true;
+}

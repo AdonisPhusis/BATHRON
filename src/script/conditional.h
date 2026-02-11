@@ -216,4 +216,66 @@ CScript CreateConditional3SSpendB(
     const CScript& redeemScript
 );
 
+// =============================================================================
+// 3-Secret Conditional Script WITH Covenant (Per-Leg FlowSwap)
+// =============================================================================
+
+/**
+ * Create 3-secret conditional script with covenant (P2SH redeemScript)
+ *
+ * Extends CreateConditional3SScript with OP_TEMPLATEVERIFY to enforce
+ * that the claiming TX output goes to a specific destination (LP_OUT).
+ * Used in per-leg mode where M1 flows LP_IN → LP_OUT.
+ *
+ * Script structure:
+ *
+ * OP_IF
+ *   OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 <H_user> OP_EQUALVERIFY
+ *   OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 <H_lp1> OP_EQUALVERIFY
+ *   OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 <H_lp2> OP_EQUALVERIFY
+ *   <C3> OP_TEMPLATEVERIFY OP_DROP
+ *   OP_DUP OP_HASH160 <claimKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+ * OP_ELSE
+ *   <timelock> OP_CHECKLOCKTIMEVERIFY OP_DROP
+ *   OP_DUP OP_HASH160 <refundKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+ * OP_ENDIF
+ *
+ * @param hashlock_user        SHA256(S_user)
+ * @param hashlock_lp1         SHA256(S_lp1)
+ * @param hashlock_lp2         SHA256(S_lp2)
+ * @param timelock             Block height (absolute)
+ * @param claimDest            Destination if all 3 secrets revealed
+ * @param refundDest           Destination if timeout
+ * @param templateCommitment   C3 = ComputeTemplateHash(PivotTx to LP_OUT)
+ * @return                     redeemScript for P2SH
+ */
+CScript CreateConditional3SWithCovenantScript(
+    const uint256& hashlock_user,
+    const uint256& hashlock_lp1,
+    const uint256& hashlock_lp2,
+    uint32_t timelock,
+    const CKeyID& claimDest,
+    const CKeyID& refundDest,
+    const uint256& templateCommitment
+);
+
+/**
+ * Decode 3-secret conditional script with covenant
+ */
+bool DecodeConditional3SWithCovenantScript(
+    const CScript& script,
+    uint256& hashlock_user,
+    uint256& hashlock_lp1,
+    uint256& hashlock_lp2,
+    uint32_t& timelock,
+    CKeyID& claimDest,
+    CKeyID& refundDest,
+    uint256& templateCommitment
+);
+
+/**
+ * Check if script is a 3-secret conditional script with covenant
+ */
+bool IsConditional3SWithCovenantScript(const CScript& script);
+
 #endif // BATHRON_SCRIPT_CONDITIONAL_H
