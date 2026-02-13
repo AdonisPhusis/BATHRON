@@ -3401,37 +3401,35 @@ try {
                         }
                     }
 
-                    // Check if this burn is a genesis burn (FINAL - minted at block 1)
+                    // Check burnclaimdb first (real claim_height), then genesis fallback
                     $isFinal = false;
                     $bathronConfs = 0;
                     $bathronClaimHeight = 0;
 
-                    if (isset($genesisTxids[$tx['txid']])) {
-                        // Genesis burn - minted at block 1, already final
-                        $isFinal = true;
-                        $bathronConfs = $bathronHeight; // All blocks since genesis
-                        $bathronClaimHeight = 1; // Minted at block 1
-                    } else {
-                        // Check burnclaimdb for non-genesis burns
-                        foreach ($burnsFinal as $fb) {
-                            if (($fb['btc_txid'] ?? '') === $tx['txid']) {
-                                $isFinal = true;
-                                $bathronConfs = 20; // Already final (K_FINALITY_TESTNET)
-                                $bathronClaimHeight = $fb['claim_height'] ?? $fb['finalized_height'] ?? 0;
+                    // Check burnclaimdb (FINAL burns)
+                    foreach ($burnsFinal as $fb) {
+                        if (($fb['btc_txid'] ?? '') === $tx['txid']) {
+                            $isFinal = true;
+                            $bathronConfs = 20; // Already final (K_FINALITY_TESTNET)
+                            $bathronClaimHeight = $fb['claim_height'] ?? $fb['finalized_height'] ?? 0;
+                            break;
+                        }
+                    }
+                    // Check pending burns
+                    if (!$isFinal) {
+                        foreach ($burnsPending as $pb) {
+                            if (($pb['btc_txid'] ?? '') === $tx['txid']) {
+                                $bathronClaimHeight = $pb['claim_height'] ?? 0;
+                                $bathronConfs = $bathronClaimHeight > 0 ? max(0, $bathronHeight - $bathronClaimHeight) : 0;
                                 break;
                             }
                         }
-                        // Check pending
-                        if (!$isFinal) {
-                            foreach ($burnsPending as $pb) {
-                                if (($pb['btc_txid'] ?? '') === $tx['txid']) {
-                                    // Has been submitted, calculate BATHRON confs
-                                    $bathronClaimHeight = $pb['claim_height'] ?? 0;
-                                    $bathronConfs = $bathronClaimHeight > 0 ? max(0, $bathronHeight - $bathronClaimHeight) : 0;
-                                    break;
-                                }
-                            }
-                        }
+                    }
+                    // Fallback: genesis burn not yet in burnclaimdb
+                    if (!$isFinal && $bathronClaimHeight === 0 && isset($genesisTxids[$tx['txid']])) {
+                        $isFinal = true;
+                        $bathronConfs = $bathronHeight;
+                        $bathronClaimHeight = 2; // Genesis claims are at block 2 (block 1 = headers-only)
                     }
 
                     $detectedBurns[] = [
