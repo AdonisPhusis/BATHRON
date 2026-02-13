@@ -498,7 +498,8 @@ if [ "$FINAL" -gt 0 ]; then
     echo "All mint outputs:"
     echo "$MINT_TX_JSON" | jq -r '.vout[] | "  vout \(.n): \(.value) sats"' 2>/dev/null | head -10
 
-    $CLI rescanwallet 2>/dev/null || true
+    echo "Rescanning blockchain for imported keys..."
+    $CLI rescanblockchain 0 2>/dev/null || echo "[WARN] rescanblockchain failed"
 else
     MN_COUNT=0
     MN_COLLATERALS=""

@@ -2440,6 +2440,27 @@ genesis_step_5_start() {
     done
 
     success "STEP 5 COMPLETE: All daemons started and responding"
+
+    # Post-start: Import wallet keys from ~/.BathronKey/wallet.json + rescanblockchain
+    # This ensures each VPS wallet can see its own M0/M1 after chain distribution.
+    # Without this, getbalance returns 0 even though M0 was minted to known addresses.
+    log "STEP 5b: Importing wallet keys + rescan on all nodes..."
+    for ip in "${VPS_NODES[@]}"; do
+        local cli_path=$(get_cli_path "$ip")
+        $SSH ubuntu@$ip "
+            if [ -f ~/.BathronKey/wallet.json ]; then
+                WIF=\$(jq -r '.wif' ~/.BathronKey/wallet.json 2>/dev/null)
+                NAME=\$(jq -r '.name' ~/.BathronKey/wallet.json 2>/dev/null)
+                if [ -n \"\$WIF\" ] && [ \"\$WIF\" != 'null' ]; then
+                    $cli_path -testnet importprivkey \"\$WIF\" \"\$NAME\" false 2>/dev/null || true
+                    $cli_path -testnet rescanblockchain 0 2>/dev/null || true
+                    echo \"[OK] Imported key for \$NAME, rescan done\"
+                fi
+            else
+                echo \"[SKIP] No ~/.BathronKey/wallet.json\"
+            fi
+        " 2>/dev/null && success "  $ip: wallet key imported + rescanned ✓" || warn "  $ip: wallet import skipped"
+    done
 }
 
 # Genesis Step 6: Verify network producing blocks (THOROUGH)
