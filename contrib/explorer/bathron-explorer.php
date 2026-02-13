@@ -3299,12 +3299,13 @@ try {
                         </div>
                         <?php
                             // M0_TOTAL from settlement = all BTC burned (A5 invariant)
-                            $m0Total = $data['network']['m0_total'] ?? 0;
-                            $m0TotalSats = (int)($m0Total * 100000000);
+                            // Value is already in SATS (1 BTC sat = 1 M0 sat)
+                            $m0TotalSats = (int)($data['network']['m0_total'] ?? 0);
+                            $m0TotalBTC = $m0TotalSats / 100000000;
                         ?>
                         <div style="padding: 15px; background: var(--bg-tertiary); border-radius: 8px;">
-                            <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase;">Total Transferred</div>
-                            <div style="font-size: 20px; font-weight: bold; color: var(--accent);"><?= rtrim(rtrim(number_format($m0Total, 8), '0'), '.') ?> BTC</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase;">Total Burned (BTC)</div>
+                            <div style="font-size: 20px; font-weight: bold; color: var(--accent);"><?= rtrim(rtrim(number_format($m0TotalBTC, 8), '0'), '.') ?> BTC</div>
                             <div style="font-size: 11px; color: var(--text-secondary);"><?= number_format($m0TotalSats) ?> sats</div>
                         </div>
                         <div style="padding: 15px; background: var(--bg-tertiary); border-radius: 8px;">
