@@ -83,8 +83,9 @@ OP_WIF=$(echo "$KEYPAIR" | jq -r ".secret")
 OP_PUB=$(echo "$KEYPAIR" | jq -r ".public")
 
 # Save operator key
-mkdir -p ~/.pivkey
-echo "{\"operator\":{\"wif\":\"$OP_WIF\",\"pubkey\":\"$OP_PUB\",\"mn_count\":$MN_COUNT,\"ip\":\"57.131.33.151\"}}" > ~/.pivkey/operator_keys.json
+mkdir -p ~/.BathronKey
+chmod 700 ~/.BathronKey
+echo "{\"operator\":{\"wif\":\"$OP_WIF\",\"pubkey\":\"$OP_PUB\",\"mn_count\":$MN_COUNT,\"ip\":\"57.131.33.151\"}}" > ~/.BathronKey/operators.json
 echo "Operator key generated"
 
 # Limit to 8 MNs

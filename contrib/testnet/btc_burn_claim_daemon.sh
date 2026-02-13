@@ -39,11 +39,11 @@ PID_FILE="/tmp/btc_burn_claim_daemon.pid"
 LOG_FILE="/tmp/btc_burn_claim_daemon.log"
 STATE_FILE="/tmp/btc_burn_claim_daemon.state"
 
-# Bitcoin CLI (Signet)
+# Bitcoin CLI (Signet) - use -conf= to match btc_header_daemon.sh
+# This ensures we connect to the same bitcoind instance
 BTC_CLI="${BTC_CLI:-$HOME/bitcoin-27.0/bin/bitcoin-cli}"
-BTC_DATADIR="${BTC_DATADIR:-$HOME/.bitcoin-signet}"
-BTC_CONF="${BTC_CONF:-$BTC_DATADIR/bitcoin.conf}"
-BTC_CMD="$BTC_CLI -datadir=$BTC_DATADIR"
+BTC_CONF="${BTC_CONF:-$HOME/.bitcoin-signet/bitcoin.conf}"
+BTC_CMD="$BTC_CLI -conf=$BTC_CONF"
 
 # BATHRON CLI (BATHRON_CMD can be overridden for bootstrap with different datadir)
 BATHRON_CLI="${BATHRON_CLI:-$HOME/bathron-cli}"

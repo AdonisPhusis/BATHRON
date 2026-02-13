@@ -3172,7 +3172,11 @@ CWallet::CommitResult CWallet::CommitTransaction(CTransactionRef tx, CReserveKey
                     // notify only once
                     if (updated_hashes.find(txin.prevout.hash) != updated_hashes.end()) continue;
 
-                    CWalletTx& coin = mapWallet.at(txin.prevout.hash);
+                    // Skip inputs not in this wallet (e.g. vault inputs from TX_UNLOCK)
+                    auto it = mapWallet.find(txin.prevout.hash);
+                    if (it == mapWallet.end()) continue;
+
+                    CWalletTx& coin = it->second;
                     coin.BindWallet(this);
                     NotifyTransactionChanged(this, txin.prevout.hash, CT_UPDATED);
                     updated_hashes.insert(txin.prevout.hash);

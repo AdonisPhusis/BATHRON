@@ -42,7 +42,7 @@ get_cli() {
     fi
 }
 
-# Test user keys (from ~/.pivkey/testnet_keys.json)
+# Test user keys (from ~/.BathronKey/testnet_keys.json)
 ALICE_ADDR="yJYD2bfYYBe6qAojSzMKX949H7QoQifNAo"
 ALICE_WIF="cTuaDJPC5HvAYD4XzFxWUszUDfVeSmaN47N6qvCxnpaucgeYzxb2"
 

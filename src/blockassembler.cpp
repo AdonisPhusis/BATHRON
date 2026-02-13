@@ -7,6 +7,7 @@
 #include "blockassembler.h"
 
 #include "btcheaders/btcheaders.h"       // BATHRON: Block 1 genesis BTC headers
+#include "btcheaders/btcheadersdb.h"     // BATHRON: btcheadersdb tip for bootstrap gap check
 #include "btcspv/btcspv.h"               // BATHRON: Read BTC headers from local SPV
 #include "burnclaim/burnclaim.h"
 #include "masternode/activemasternode.h"
@@ -46,6 +47,8 @@
 
 uint64_t nLastBlockTx = 0;
 uint64_t nLastBlockSize = 0;
+
+bool g_fBootstrapGenerating = false;
 
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
 {
@@ -126,16 +129,16 @@ bool CreateCoinbaseTx(CBlock* pblock, const CScript& scriptPubKeyIn, CBlockIndex
  * Eliminates: btcspv snapshot distribution, special genesis files,
  *             BootstrapBtcHeadersDBFromSPV, reindex chicken-and-egg.
  */
-std::vector<CTransactionRef> CreateGenesisHeaderTransactions()
+std::vector<CTransactionRef> CreateGenesisHeaderTransactions(uint32_t fromHeight = 0)
 {
     std::vector<CTransactionRef> headerTxs;
 
     if (!g_btc_spv) {
-        LogPrintf("GENESIS ERROR: btcspv not initialized - cannot create Block 1 headers\n");
+        LogPrintf("GENESIS ERROR: btcspv not initialized - cannot create headers\n");
         return headerTxs;
     }
 
-    uint32_t startHeight = BTCHEADERS_GENESIS_CHECKPOINT + 1;
+    uint32_t startHeight = (fromHeight > 0) ? fromHeight : (BTCHEADERS_GENESIS_CHECKPOINT + 1);
     uint32_t spvTip = g_btc_spv->GetTipHeight();
 
     if (spvTip < startHeight) {
@@ -284,6 +287,33 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
             }
             // NOTE: No TX_BURN_CLAIM at Block 1
             // All burns (including pre-launch) are detected by burn_claim_daemon after network starts
+        } else if (g_fBootstrapGenerating &&
+                   height <= (uint32_t)chainparams.GetConsensus().nDMMBootstrapHeight &&
+                   g_btc_spv && g_btcheadersdb) {
+            // Bootstrap blocks (2..nDMMBootstrapHeight): publish remaining headers
+            // if btcspv has more headers than btcheadersdb (backup may be incomplete)
+            // ONLY during generatebootstrap RPC - NOT during live DMM block production
+            uint32_t spvTip = g_btc_spv->GetTipHeight();
+            uint32_t headersTip = g_btcheadersdb->GetTipHeight();
+            if (spvTip > headersTip) {
+                LogPrintf("BOOTSTRAP: btcspv(%u) > btcheadersdb(%u), publishing catch-up headers at h=%u\n",
+                          spvTip, headersTip, height);
+                std::vector<CTransactionRef> headerTxs = CreateGenesisHeaderTransactions(headersTip + 1);
+                for (auto& tx : headerTxs) {
+                    pblock->vtx.push_back(std::move(tx));
+                }
+                if (!headerTxs.empty()) {
+                    LogPrintf("BOOTSTRAP: Block %u includes %zu catch-up TX_BTC_HEADERS\n",
+                              height, headerTxs.size());
+                }
+            }
+
+            // Also try minting (heights >= 2)
+            CTransaction mintTx = CreateMintM0BTC(height);
+            if (!mintTx.IsNull()) {
+                pblock->vtx.push_back(MakeTransactionRef(std::move(mintTx)));
+                LogPrint(BCLog::STATE, "BP11: Added TX_MINT_M0BTC at height %d\n", height);
+            }
         } else {
             // Heights >= 2: Normal BP11 finalization of burn claims
             CTransaction mintTx = CreateMintM0BTC(height);

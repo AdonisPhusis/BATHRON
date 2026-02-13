@@ -48,7 +48,8 @@ static const uint32_t BTCHEADERS_GENESIS_CHECKPOINT = 286000;
 
 // Max headers in genesis TX_BTC_HEADERS (block 1 only)
 // Normal operation uses BTCHEADERS_DEFAULT_COUNT (100)
-static const uint16_t BTCHEADERS_GENESIS_MAX_COUNT = 5000;
+// Must accommodate all headers from GENESIS_CHECKPOINT to BTC tip (~6000 max)
+static const uint16_t BTCHEADERS_GENESIS_MAX_COUNT = 8000;
 
 // ============================================================================
 // BtcHeadersPayload - Payload for TX_BTC_HEADERS (type 33)

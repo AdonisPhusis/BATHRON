@@ -1,17 +1,17 @@
 #!/bin/bash
 # genesis_bootstrap_seed.sh - Run directly on Seed node
-# Creates genesis bootstrap blocks with DAEMON-ONLY burn detection
+# Creates genesis bootstrap blocks with LIVE burn auto-discovery
 #
-# TRUE DAEMON-ONLY FLOW (no genesis_burns*.json):
-# 1. Block 1: TX_BTC_HEADERS only
-# 2. btc_burn_claim_daemon scans BTC Signet LIVE for all burns with 6+ confs
-# 3. submitburnclaim for each detected burn
-# 4. K blocks later, TX_MINT_M0BTC finalizes
-# 5. MNs registered with minted funds
+# CLEAN FLOW (zero hardcoded data, zero pre-collected files):
+# 1. Block 1: TX_BTC_HEADERS from btcspv backup
+# 2. Header catch-up: generatebootstrap until btcheadersdb covers BTC Signet safe height
+# 3. Burn discovery: scan BTC Signet blocks for BATHRON burns (same logic as btc_burn_claim_daemon.sh)
+# 4. Submit burn claims via submitburnclaimproof
+# 5. K=20 blocks for finality → TX_MINT_M0BTC
+# 6. MNs registered with minted funds
 #
 # Requirements:
-# - Bitcoin Core running on Signet with txindex=1
-# - btc_burn_claim_daemon.sh in ~/
+# - Bitcoin Core running on Signet with txindex=1 (on this Seed node)
 # - btcspv backup for TX_BTC_HEADERS
 
 # Robust error handling - don't exit on non-critical errors
@@ -48,14 +48,86 @@ TESTNET_DIR=$DATADIR/testnet5
 CLI="/home/ubuntu/bathron-cli -datadir=$DATADIR -testnet"
 DAEMON="/home/ubuntu/bathrond -datadir=$DATADIR -testnet"
 K_FINALITY=20
+K_BTC_CONFS=6          # Required BTC confirmations (Signet)
 BTC_CHECKPOINT=286300  # First burn at 286326 - start scan just before
 
+# BTC Signet CLI (running locally on Seed)
+BTC_CLI="${BTC_CLI:-$HOME/bitcoin-27.0/bin/bitcoin-cli}"
+BTC_CONF="${BTC_CONF:-$HOME/.bitcoin-signet/bitcoin.conf}"
+BTC_CMD="$BTC_CLI -conf=$BTC_CONF"
+BATHRON_MAGIC="42415448524f4e"  # "BATHRON" in hex
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Burn scan functions (inlined from btc_burn_claim_daemon.sh)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Find BATHRON burns in a BTC Signet block
+# Outputs one btc_txid per line for each burn found
+find_burns_in_block() {
+    local height="$1"
+    local block_hash=$($BTC_CMD getblockhash "$height" 2>/dev/null) || return
+    local block_json=$($BTC_CMD getblock "$block_hash" 2 2>/dev/null) || return
+
+    echo "$block_json" | jq -r '.tx[] | select(.vout[]?.scriptPubKey.asm | startswith("OP_RETURN")) | .txid' 2>/dev/null | while read txid; do
+        if [ -n "$txid" ]; then
+            local raw_tx=$($BTC_CMD getrawtransaction "$txid" 2>/dev/null) || continue
+            # Check for BATHRON magic: 6a = OP_RETURN, 1d = push 29 bytes, then "BATHRON"
+            if echo "$raw_tx" | grep -qi "6a1d${BATHRON_MAGIC}"; then
+                echo "$txid"
+            fi
+        fi
+    done
+}
+
+# Submit a burn claim to BATHRON
+submit_claim() {
+    local btc_txid="$1"
+    local height="$2"
+
+    local raw_tx=$($BTC_CMD getrawtransaction "$btc_txid" 2>/dev/null)
+    if [ -z "$raw_tx" ]; then
+        echo "    [ERROR] Failed to get raw TX for $btc_txid"
+        return 1
+    fi
+
+    local merkleblock=$($BTC_CMD gettxoutproof "[\"$btc_txid\"]" 2>/dev/null)
+    if [ -z "$merkleblock" ]; then
+        echo "    [ERROR] Failed to get merkle proof for $btc_txid"
+        return 1
+    fi
+
+    local result=$($CLI submitburnclaimproof "$raw_tx" "$merkleblock" 2>&1)
+    if echo "$result" | grep -q '"txid"'; then
+        local bathron_txid=$(echo "$result" | jq -r '.txid')
+        echo "    OK -> ${bathron_txid:0:16}..."
+        return 0
+    elif echo "$result" | grep -qi "duplicate\|already\|exists"; then
+        echo "    skip (already claimed)"
+        return 0
+    else
+        echo "    FAILED: $result"
+        return 1
+    fi
+}
+
+# Check if a burn is already claimed on BATHRON
+is_already_claimed() {
+    local btc_txid="$1"
+    local result=$($CLI checkburnclaim "$btc_txid" 2>/dev/null || echo "")
+    if echo "$result" | jq -e '.exists == true' >/dev/null 2>&1; then
+        return 0  # Already claimed
+    fi
+    return 1  # Not claimed
+}
+
 echo "════════════════════════════════════════════════════════════════"
-echo "  Genesis Bootstrap - DAEMON-ONLY Flow"
+echo "  Genesis Bootstrap - Clean Auto-Discovery Flow"
 echo "════════════════════════════════════════════════════════════════"
 echo "Datadir: $DATADIR"
 echo "K_FINALITY: $K_FINALITY"
+echo "K_BTC_CONFS: $K_BTC_CONFS"
 echo "BTC Checkpoint: $BTC_CHECKPOINT"
+echo "BTC Signet CLI: $BTC_CMD"
 echo ""
 
 # Ensure latest binary
@@ -65,9 +137,21 @@ if [ -x /home/ubuntu/BATHRON-Core/src/bathrond ]; then
     echo "[OK] Binary updated from BATHRON-Core"
 fi
 
-# Kill any existing
+# Kill ALL existing bathrond (any datadir)
+echo "Stopping any running bathrond..."
 pkill -9 bathrond 2>/dev/null || true
-sleep 2
+sleep 3
+# Double check — if still alive, something is restarting it
+if pgrep -u ubuntu bathrond >/dev/null 2>&1; then
+    echo "[WARN] bathrond still alive after SIGKILL, waiting..."
+    sleep 5
+    pkill -9 -f bathrond 2>/dev/null || true
+    sleep 2
+fi
+if pgrep -u ubuntu bathrond >/dev/null 2>&1; then
+    fatal "Cannot kill existing bathrond — check systemd or other process managers"
+fi
+echo "[OK] No bathrond running"
 
 # Wipe and setup
 rm -rf $DATADIR
@@ -76,7 +160,13 @@ mkdir -p $TESTNET_DIR
 # Restore btcspv (needed for Block 1 TX_BTC_HEADERS)
 if [ -f /home/ubuntu/btcspv_backup_latest.tar.gz ]; then
     cd $TESTNET_DIR && tar xzf /home/ubuntu/btcspv_backup_latest.tar.gz
-    echo "[OK] btcspv restored"
+    # Verify btcspv has actual data (LevelDB uses WAL .log files + .ldb files)
+    SPV_SIZE=$(du -sb $TESTNET_DIR/btcspv 2>/dev/null | cut -f1)
+    SPV_HAS_CURRENT=$(test -f $TESTNET_DIR/btcspv/CURRENT && echo "yes" || echo "no")
+    echo "[OK] btcspv restored (${SPV_SIZE} bytes, CURRENT=$SPV_HAS_CURRENT)"
+    if [ "$SPV_HAS_CURRENT" != "yes" ] || [ "${SPV_SIZE:-0}" -lt 10000 ]; then
+        fatal "btcspv backup is empty or corrupt (size=${SPV_SIZE}, CURRENT=$SPV_HAS_CURRENT)"
+    fi
 else
     fatal "No btcspv backup found at /home/ubuntu/btcspv_backup_latest.tar.gz"
 fi
@@ -95,16 +185,52 @@ EOF
 echo ""
 echo "Starting daemon..."
 $DAEMON -daemon -noconnect -listen=0
-sleep 15
+sleep 5
+
+# Health check: wait for daemon to be responsive (max 30s)
+DAEMON_OK=false
+for i in $(seq 1 25); do
+    if $CLI getblockcount >/dev/null 2>&1; then
+        DAEMON_OK=true
+        break
+    fi
+    sleep 1
+done
+
+if ! $DAEMON_OK; then
+    echo "[DIAG] ps check:"
+    ps aux | grep bathrond | grep -v grep || echo "  No bathrond process found!"
+    echo "[DIAG] debug.log tail:"
+    tail -20 $TESTNET_DIR/debug.log 2>/dev/null || echo "  No debug.log"
+    fatal "Daemon failed to start or not responding after 30s"
+fi
+
+# Verify btcspv is loaded
+SPV_STATUS=$($CLI getbtcsyncstatus 2>&1 || echo "FAIL")
+SPV_TIP=$(echo "$SPV_STATUS" | jq -r '.tip_height // 0' 2>/dev/null || echo "0")
+SPV_COUNT=$(echo "$SPV_STATUS" | jq -r '.headers_count // 0' 2>/dev/null || echo "0")
+echo "[OK] Daemon running, btcspv loaded: tip=$SPV_TIP, count=$SPV_COUNT"
+
+if [ "$SPV_TIP" -lt 286001 ]; then
+    echo "[DIAG] Full SPV status: $SPV_STATUS"
+    fatal "btcspv tip ($SPV_TIP) below checkpoint+1 (286001) — backup is corrupt or empty"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Block 1: TX_BTC_HEADERS only (NO burns at this stage)
 # ═══════════════════════════════════════════════════════════════════════════
 echo ""
 echo "═══ Block 1: TX_BTC_HEADERS ═══"
-BLOCK1=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
+BLOCK1_RESULT=$($CLI generatebootstrap 1 2>&1)
+BLOCK1=$(echo "$BLOCK1_RESULT" | jq -r ".[0]" 2>/dev/null)
 echo "Block 1: $BLOCK1"
-H1=$($CLI getblockcount)
+if [ -z "$BLOCK1" ] || [ "$BLOCK1" = "null" ]; then
+    echo "[DIAG] generatebootstrap result: $BLOCK1_RESULT"
+    tail -30 $TESTNET_DIR/debug.log 2>/dev/null || true
+    fatal "generatebootstrap failed for Block 1"
+fi
+
+H1=$($CLI getblockcount 2>/dev/null || echo "?")
 echo "Height: $H1"
 
 # Verify BTC headers in Block 1
@@ -113,9 +239,15 @@ echo "TX_BTC_HEADERS: $HEADER_COUNT"
 
 # Validate HEADER_COUNT is numeric and > 0
 if ! is_numeric "$HEADER_COUNT"; then
+    echo "[DIAG] getblock output:"
+    $CLI getblock "$BLOCK1" 2 2>/dev/null | jq '.tx[] | {type, txid}' 2>/dev/null || true
+    tail -20 $TESTNET_DIR/debug.log 2>/dev/null | grep -i "genesis\|header\|error" || true
     fatal "Failed to count BTC headers (jq parse error or daemon not responding)"
 fi
 if [ "$HEADER_COUNT" -eq 0 ]; then
+    echo "[DIAG] btcspv tip at Block 1 time: $SPV_TIP"
+    echo "[DIAG] debug.log genesis entries:"
+    grep -i "genesis\|GENESIS" $TESTNET_DIR/debug.log 2>/dev/null | tail -10 || true
     fatal "No BTC headers in Block 1 - btcspv may be corrupted or empty"
 fi
 
@@ -124,6 +256,75 @@ CLAIM_COUNT=$($CLI getblock "$BLOCK1" 2 2>/dev/null | jq "[.tx[] | select(.type 
 if [ "$CLAIM_COUNT" != "0" ]; then
     echo "[WARN] Block 1 has $CLAIM_COUNT TX_BURN_CLAIM - expected 0 for daemon-only flow"
 fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2: Header catch-up (btcheadersdb must cover BTC Signet safe height)
+# ═══════════════════════════════════════════════════════════════════════════
+echo ""
+echo "═══ Phase 2: Header catch-up ═══"
+
+# Verify BTC Signet is reachable
+BTC_TIP=$($BTC_CMD getblockcount 2>/dev/null || echo "-1")
+if [ "$BTC_TIP" = "-1" ]; then
+    fatal "BTC Signet not reachable. Ensure bitcoind is running on Seed."
+fi
+SAFE_HEIGHT=$((BTC_TIP - K_BTC_CONFS))
+echo "BTC Signet tip: $BTC_TIP (safe height: $SAFE_HEIGHT)"
+
+# Check current btcheadersdb tip
+HEADERS_TIP=$($CLI getbtcheaderstip 2>/dev/null | jq -r '.height // 0' 2>/dev/null)
+if ! is_numeric "$HEADERS_TIP"; then
+    HEADERS_TIP=0
+fi
+echo "btcheadersdb tip after Block 1: $HEADERS_TIP"
+
+# Generate additional blocks until btcheadersdb covers safe height
+# C++ catch-up code (g_fBootstrapGenerating) publishes headers from btcspv → btcheadersdb
+EXTRA_BLOCKS=0
+DEAD_COUNT=0
+while [ "$HEADERS_TIP" -lt "$SAFE_HEIGHT" ]; do
+    EXTRA_BLOCKS=$((EXTRA_BLOCKS + 1))
+    if [ "$EXTRA_BLOCKS" -gt 200 ]; then
+        fatal "Too many catch-up blocks ($EXTRA_BLOCKS). btcspv backup may be incomplete (tip=$HEADERS_TIP, need=$SAFE_HEIGHT)."
+    fi
+    sleep 1
+
+    # Check daemon is alive before generating
+    if ! $CLI getblockcount >/dev/null 2>&1; then
+        DEAD_COUNT=$((DEAD_COUNT + 1))
+        if [ "$DEAD_COUNT" -ge 3 ]; then
+            echo "[DIAG] debug.log tail:"
+            tail -30 $TESTNET_DIR/debug.log 2>/dev/null || true
+            fatal "Daemon died during header catch-up (btcheadersdb tip=$HEADERS_TIP, need=$SAFE_HEIGHT)"
+        fi
+        echo "  [WARN] Daemon not responding (attempt $DEAD_COUNT/3), waiting..."
+        sleep 5
+        continue
+    fi
+    DEAD_COUNT=0
+
+    GEN_RESULT=$($CLI generatebootstrap 1 2>&1)
+    if echo "$GEN_RESULT" | grep -qi "error"; then
+        echo "  [WARN] generatebootstrap error: $GEN_RESULT"
+    fi
+
+    HEADERS_TIP=$($CLI getbtcheaderstip 2>/dev/null | jq -r '.height // 0' 2>/dev/null)
+    if ! is_numeric "$HEADERS_TIP"; then
+        HEADERS_TIP=0
+    fi
+    # Show progress every 10 blocks, or first 5
+    if [ "$EXTRA_BLOCKS" -le 5 ] || [ $((EXTRA_BLOCKS % 10)) -eq 0 ]; then
+        echo "  Catch-up block $EXTRA_BLOCKS: btcheadersdb tip = $HEADERS_TIP"
+    fi
+done
+echo "btcheadersdb tip: $HEADERS_TIP (covers safe height $SAFE_HEIGHT) — $EXTRA_BLOCKS catch-up blocks"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 3: Burn discovery & claiming (auto-scan BTC Signet)
+# ═══════════════════════════════════════════════════════════════════════════
+echo ""
+echo "═══ Phase 3: Burn discovery (BTC Signet scan) ═══"
+echo "Scanning BTC blocks $((BTC_CHECKPOINT + 1)) to $SAFE_HEIGHT for BATHRON burns..."
 
 # Import burn destination keys (if available)
 if [ -f /tmp/burn_dest_keys.json ]; then
@@ -138,56 +339,66 @@ if [ -f /tmp/burn_dest_keys.json ]; then
     echo "[OK] Imported $IMPORTED burn destination keys"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Detect and submit burns via btc_burn_claim_daemon (LIVE scan)
-# ═══════════════════════════════════════════════════════════════════════════
-echo ""
-echo "═══ Burn Detection (SIMPLIFIED for genesis) ═══"
+BURNS_FOUND=0
+BURNS_SUBMITTED=0
+BURNS_SKIPPED=0
 
-# Check if BTC Signet is available
-BTC_CLI="${BTC_CLI:-$HOME/bitcoin-27.0/bin/bitcoin-cli}"
-BTC_DATADIR="${BTC_DATADIR:-$HOME/.bitcoin-signet}"
-BTC_CMD="$BTC_CLI -datadir=$BTC_DATADIR"
-
-if $BTC_CMD getblockcount >/dev/null 2>&1; then
-    BTC_TIP=$($BTC_CMD getblockcount)
-    echo "BTC Signet tip: $BTC_TIP"
-
-    # Use simple burn claim script (no progress spam)
-    export BATHRON_CMD="$CLI"
-    export BTC_CLI="$BTC_CLI"
-    export BTC_DATADIR="$BTC_DATADIR"
-    # Run burn claimer - show ALL output (no grep filter)
-    ~/genesis_claim_burns_simple.sh 2>&1
-
-    # Wait for claims to reach mempool
-    echo "Waiting 5s for claims..."
-    sleep 5
-
-    # Check daemon is still alive
-    if ! $CLI getblockcount >/dev/null 2>&1; then
-        tail -30 $TESTNET_DIR/debug.log 2>/dev/null || true
-        fatal "Daemon died during burn claiming"
+for HEIGHT in $(seq $((BTC_CHECKPOINT + 1)) $SAFE_HEIGHT); do
+    # Progress every 500 blocks
+    if [ $((HEIGHT % 500)) -eq 0 ]; then
+        echo "  Scanning block $HEIGHT / $SAFE_HEIGHT (found $BURNS_FOUND so far)..."
     fi
 
-    # Mine claims block (wait for time slot to avoid time-too-new)
-    echo "Mining claims block (waiting 16s for time slot)..."
-    sleep 16
-    CLAIM_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
-    echo "Claims block: ${CLAIM_BLOCK:0:16}..."
+    BURNS=$(find_burns_in_block "$HEIGHT")
+    if [ -n "$BURNS" ]; then
+        while IFS= read -r btc_txid; do
+            [ -z "$btc_txid" ] && continue
+            BURNS_FOUND=$((BURNS_FOUND + 1))
+            echo "  [BURN] $btc_txid at height $HEIGHT"
 
-    # Check results
-    PENDING=$($CLI listburnclaims pending 100 2>/dev/null | jq length 2>/dev/null || echo "0")
-    FINAL=$($CLI listburnclaims final 100 2>/dev/null | jq length 2>/dev/null || echo "0")
-    echo "PENDING: $PENDING, FINAL: $FINAL"
-else
-    echo "[WARN] BTC Signet not available"
-    PENDING=0
-    FINAL=0
+            if is_already_claimed "$btc_txid"; then
+                echo "    skip (already claimed)"
+                BURNS_SKIPPED=$((BURNS_SKIPPED + 1))
+                continue
+            fi
+
+            if submit_claim "$btc_txid" "$HEIGHT"; then
+                BURNS_SUBMITTED=$((BURNS_SUBMITTED + 1))
+            fi
+        done <<< "$BURNS"
+    fi
+done
+
+echo ""
+echo "Burn scan complete: found=$BURNS_FOUND, submitted=$BURNS_SUBMITTED, skipped=$BURNS_SKIPPED"
+
+# Check daemon is still alive
+if ! $CLI getblockcount >/dev/null 2>&1; then
+    tail -30 $TESTNET_DIR/debug.log 2>/dev/null || true
+    fatal "Daemon died during burn claiming"
 fi
-# Wait for timestamp
-echo "Waiting 5s..."
-sleep 5
+
+if [ "$BURNS_FOUND" -eq 0 ]; then
+    echo "[WARN] No burns found on BTC Signet in range $BTC_CHECKPOINT..$SAFE_HEIGHT"
+fi
+
+# Mine burn claims block (claims are in mempool from submit_claim)
+echo "Mining burn claims block..."
+sleep 1
+CLAIM_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
+echo "Claims block: ${CLAIM_BLOCK:0:16}..."
+
+# Set burn scan progress so burn daemon starts from here after genesis
+SCAN_HASH=$($CLI getbtcheader "$SAFE_HEIGHT" 2>/dev/null | jq -r '.hash // empty')
+if [ -n "$SCAN_HASH" ]; then
+    $CLI setburnscanprogress "$SAFE_HEIGHT" "$SCAN_HASH" 2>/dev/null || true
+    echo "Burn scan progress set to BTC height $SAFE_HEIGHT"
+fi
+
+# Check results
+PENDING=$($CLI listburnclaims pending 100 2>/dev/null | jq length 2>/dev/null || echo "0")
+FINAL=$($CLI listburnclaims final 100 2>/dev/null | jq length 2>/dev/null || echo "0")
+echo "PENDING: $PENDING, FINAL: $FINAL"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Generate K_FINALITY blocks
@@ -195,9 +406,9 @@ sleep 5
 echo ""
 echo "═══ Generating $K_FINALITY blocks ═══"
 for i in $(seq 1 $K_FINALITY); do
-    # CRITICAL: Block spacing requires at least one time slot (15s) between blocks
-    # (time-too-new consensus rule). Using 16s for safety margin.
-    sleep 16
+    # Block assembler auto-aligns timestamps to 15s slots. No real-time wait needed
+    # during bootstrap — generatebootstrap is synchronous and time-too-old was removed.
+    sleep 1
 
     # Check daemon is still alive
     if ! $CLI getblockcount >/dev/null 2>&1; then
@@ -237,8 +448,7 @@ echo "═══ Block $((FINAL_H + 1)): Mints ═══"
 echo "Claims before mint:"
 $CLI listburnclaims all 50 2>/dev/null | jq -c ".[] | {txid: .btc_txid[:16], status, h: .claim_height}" 2>/dev/null | head -10
 
-echo "Waiting 16s for time slot..."
-sleep 16
+sleep 1
 MINT_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
 echo "Mint block: $MINT_BLOCK"
 
@@ -331,7 +541,7 @@ if [ "$MN_COUNT" -gt 0 ]; then
         echo "  sendmany failed (may have UTXOs already)"
     else
         echo "  Fee TX: ${SENDMANY_RESULT:0:16}..."
-        sleep 16
+        sleep 1
         FEE_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
         echo "  Fee block: ${FEE_BLOCK:0:16}..."
     fi
@@ -361,7 +571,7 @@ if [ "$MN_COUNT" -gt 0 ]; then
 
     # Mine ProReg TXs
     if [ "$MN_REG_OK" -gt 0 ]; then
-        sleep 16
+        sleep 1
         PROREG_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
         echo "ProReg block: ${PROREG_BLOCK:0:16}..."
     fi
@@ -377,8 +587,9 @@ if [ "$MN_COUNT" -gt 0 ]; then
     fi
 
     # Save operator key
-    mkdir -p ~/.pivkey
-    cat > ~/.pivkey/operator_keys.json << KEYEOF
+    mkdir -p ~/.BathronKey
+    chmod 700 ~/.BathronKey
+    cat > ~/.BathronKey/operators.json << KEYEOF
 {"operator":{"wif":"$OP_WIF","pubkey":"$OP_PUB","mn_count":$MN_COUNT}}
 KEYEOF
     echo "Operator key saved"
@@ -398,7 +609,8 @@ echo "BTC Headers: $HEADER_COUNT"
 echo "FINAL burns: $($CLI listburnclaims final 100 2>/dev/null | jq length 2>/dev/null || echo "0")"
 echo "MNs: $MN_REGISTERED registered"
 echo ""
-echo "Flow: DAEMON-ONLY (no genesis_burns*.json)"
+echo "Burns found: $BURNS_FOUND (submitted: $BURNS_SUBMITTED)"
+echo "Flow: CLEAN (auto-discovery from BTC Signet, zero hardcoded data)"
 echo "════════════════════════════════════════════════════════════════"
 
 # Stop daemon

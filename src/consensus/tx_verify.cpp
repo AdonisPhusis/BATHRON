@@ -68,8 +68,10 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state)
     }
 
     // Size limits
+    // TX_BTC_HEADERS are MN-published consensus transactions; block size limit constrains them
     static_assert(MAX_BLOCK_SIZE_CURRENT >= MAX_TX_SIZE_AFTER_SAPLING, "Max block size must be bigger than max TX size");    // sanity
-    const unsigned int nMaxSize = MAX_TX_SIZE_AFTER_SAPLING;
+    const bool fBtcHeaders = (tx.nType == static_cast<int16_t>(CTransaction::TxType::TX_BTC_HEADERS));
+    const unsigned int nMaxSize = fBtcHeaders ? MAX_BLOCK_SIZE_CURRENT : MAX_TX_SIZE_AFTER_SAPLING;
     if (tx.GetTotalSize() > nMaxSize) {
         return state.DoS(10, error("tx oversize: %d > %d", tx.GetTotalSize(), nMaxSize), REJECT_INVALID, "bad-txns-oversize");
     }

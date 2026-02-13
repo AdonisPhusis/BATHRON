@@ -21,6 +21,9 @@ class CReserveKey;
 class CScript;
 class CWallet;
 
+// Set to true during generatebootstrap RPC to enable TX_BTC_HEADERS catch-up
+extern bool g_fBootstrapGenerating;
+
 namespace Consensus { struct Params; };
 
 struct CBlockTemplate

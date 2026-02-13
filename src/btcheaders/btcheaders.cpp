@@ -5,6 +5,7 @@
 #include "btcheaders/btcheaders.h"
 #include "btcheaders/btcheadersdb.h"
 
+#include "chainparams.h"
 #include "consensus/validation.h"
 #include "masternode/deterministicmns.h"
 #include "hash.h"
@@ -147,22 +148,27 @@ bool CheckBtcHeadersTx(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-payload");
     }
 
-    // Genesis block 1: TX_BTC_HEADERS carries all BTC headers from checkpoint.
+    // Genesis/Bootstrap: TX_BTC_HEADERS carries BTC headers from checkpoint.
     // No MNs registered yet, so skip R1 (MN check), R2 (signature), anti-spam.
     // pindexPrev==nullptr when called from CheckBlock (non-contextual)
     // pindexPrev->nHeight==0 when called contextually for block 1
+    // Bootstrap heights (1..nDMMBootstrapHeight): also allow unsigned headers
+    // (needed when btcspv backup is incomplete and requires multi-block catch-up)
     bool isGenesisBlock = (!pindexPrev || pindexPrev->nHeight == 0);
+    bool isBootstrapBlock = (pindexPrev &&
+                             (uint32_t)(pindexPrev->nHeight + 1) <= (uint32_t)Params().GetConsensus().nDMMBootstrapHeight);
+    bool skipMNChecks = isGenesisBlock || isBootstrapBlock;
 
     // R7: Trivial validation FIRST (count, size, count==headers.size())
-    // Genesis (or non-contextual) allows higher count (BTCHEADERS_GENESIS_MAX_COUNT)
+    // Genesis/Bootstrap allows higher count (BTCHEADERS_GENESIS_MAX_COUNT)
     {
         if (payload.nVersion != BTCHEADERS_VERSION) {
             return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-version");
         }
-        uint16_t maxCount = isGenesisBlock ? BTCHEADERS_GENESIS_MAX_COUNT : BTCHEADERS_MAX_COUNT;
+        uint16_t maxCount = skipMNChecks ? BTCHEADERS_GENESIS_MAX_COUNT : BTCHEADERS_MAX_COUNT;
         if (payload.count < 1 || payload.count > maxCount) {
-            LogPrint(BCLog::MASTERNODE, "TX_BTC_HEADERS invalid count %d (max=%d, genesis=%d)\n",
-                     payload.count, maxCount, isGenesisBlock);
+            LogPrint(BCLog::MASTERNODE, "TX_BTC_HEADERS invalid count %d (max=%d, skipMN=%d)\n",
+                     payload.count, maxCount, skipMNChecks);
             return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-count");
         }
         if (payload.headers.size() != payload.count) {
@@ -171,8 +177,8 @@ bool CheckBtcHeadersTx(const CTransaction& tx,
         if (payload.GetSerializedSize() > BTCHEADERS_MAX_PAYLOAD_SIZE) {
             return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-size");
         }
-        // Genesis: allow null publisher and empty sig (no MNs yet)
-        if (!isGenesisBlock) {
+        // Genesis/Bootstrap: allow null publisher and empty sig (no MNs yet)
+        if (!skipMNChecks) {
             if (payload.publisherProTxHash.IsNull()) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-null-publisher");
             }
@@ -182,7 +188,7 @@ bool CheckBtcHeadersTx(const CTransaction& tx,
         }
     }
 
-    if (!isGenesisBlock) {
+    if (!skipMNChecks) {
         // R1: Publisher must be registered MN
         auto dmn = deterministicMNManager->GetListAtChainTip().GetMN(payload.publisherProTxHash);
         if (!dmn) {
@@ -198,13 +204,13 @@ bool CheckBtcHeadersTx(const CTransaction& tx,
             return state.DoS(100, false, REJECT_INVALID, "bad-btcheaders-sig");
         }
     } else {
-        LogPrintf("TX_BTC_HEADERS: Genesis block 1 - skipping R1/R2 (no MNs yet)\n");
+        LogPrintf("TX_BTC_HEADERS: Genesis/bootstrap block - skipping R1/R2 (no MNs yet)\n");
     }
 
-    // Anti-spam: Publisher cooldown check (skip for genesis)
+    // Anti-spam: Publisher cooldown check (skip for genesis/bootstrap)
     // Same MN cannot publish twice within BTCHEADERS_PUBLISHER_COOLDOWN blocks
     // EXCEPTION: If sync is behind (btcspv > btcheadersdb), allow rapid catch-up
-    if (!isGenesisBlock && pindexPrev && g_btcheadersdb) {
+    if (!skipMNChecks && pindexPrev && g_btcheadersdb) {
         uint256 lastPublisher;
         int lastPublishHeight = 0;
         if (g_btcheadersdb->GetLastPublisher(lastPublisher, lastPublishHeight)) {

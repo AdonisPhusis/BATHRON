@@ -20,9 +20,9 @@ $SCP contrib/testnet/btc_burn_claim_daemon.sh ubuntu@$SEED_IP:~/
 echo "[OK] Scripts copied"
 
 # 2. Copy burn destination keys if they exist
-if [ -f ~/.pivkey/burn_dest_keys.json ]; then
+if [ -f ~/.BathronKey/burn_dest_keys.json ]; then
     echo "[2] Copying burn destination keys..."
-    $SCP ~/.pivkey/burn_dest_keys.json ubuntu@$SEED_IP:/tmp/
+    $SCP ~/.BathronKey/burn_dest_keys.json ubuntu@$SEED_IP:/tmp/
     echo "[OK] Keys copied"
 else
     echo "[2] No burn destination keys found (will skip)"

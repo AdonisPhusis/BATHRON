@@ -236,7 +236,7 @@ static UniValue unlock(const JSONRPCRequest& request)
             "automatically selected from your wallet.\n"
             "If your M1 receipt(s) exceed the unlock amount, you get\n"
             "M1 change back as a new receipt.\n"
-            "\nNetwork fee is paid from separate M0 balance (not from M1).\n"
+            "\nNetwork fee is deducted from M1 balance (M1 fee model).\n"
             "\nArguments:\n"
             "1. amount        (numeric, required) Amount of M0 to unlock\n"
             "2. destination   (string, optional) Destination address for M0 output\n"
@@ -249,7 +249,7 @@ static UniValue unlock(const JSONRPCRequest& request)
             "  \"m1_change\": x.xxx,           (numeric) M1 change (if any)\n"
             "  \"m1_change_outpoint\": \"...\", (string) M1 change receipt (if any)\n"
             "  \"vaults_used\": n,             (numeric) Number of vaults consumed\n"
-            "  \"fee\": x.xxx                  (numeric) Network fee (paid in M0)\n"
+            "  \"fee\": x.xxx                  (numeric) Network fee (paid in M1)\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("unlock", "100.0")
@@ -327,20 +327,21 @@ static UniValue unlock(const JSONRPCRequest& request)
                   return a.second.amount < b.second.amount;
               });
 
-    // BP30 v2.1: M1 selection is based ONLY on unlockAmount
-    // Network fee is handled separately via M0 inputs
-    if (totalM1Available < unlockAmount) {
+    // BP30 v3.0: M1 selection covers unlockAmount + estimated fee (M1 fee model)
+    CAmount estimatedFee = 145;  // Conservative estimate matching builder minimum
+    if (totalM1Available < unlockAmount + estimatedFee) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-            strprintf("Insufficient M1 balance. Have %s, need %s",
-                      FormatMoney(totalM1Available), FormatMoney(unlockAmount)));
+            strprintf("Insufficient M1 balance. Have %s, need %s (unlock=%s + fee~%s)",
+                      FormatMoney(totalM1Available), FormatMoney(unlockAmount + estimatedFee),
+                      FormatMoney(unlockAmount), FormatMoney(estimatedFee)));
     }
 
-    // Select M1 receipts to cover unlockAmount
+    // Select M1 receipts to cover unlockAmount + fee margin
     std::vector<M1Input> m1Inputs;
     CAmount selectedM1 = 0;
 
     for (const auto& candidate : m1Candidates) {
-        if (selectedM1 >= unlockAmount) break;
+        if (selectedM1 >= unlockAmount + estimatedFee) break;
 
         const COutput& out = candidate.first;
         const M1Receipt& receipt = candidate.second;
@@ -382,88 +383,9 @@ static UniValue unlock(const JSONRPCRequest& request)
     CMutableTransaction& mtx = unlockResult.mtx;
 
     // =========================================================================
-    // NETWORK FEE: Add M0 inputs + M0 change (wallet layer, not settlement)
+    // BP30 v3.0: M1 fee model - NO M0 fee inputs required
+    // Fee is paid from M1 receipt (deducted by BuildUnlockTransaction)
     // =========================================================================
-
-    // Calculate settlement outputs count for fee estimation
-    size_t settlementOutputCount = mtx.vout.size();  // M0_out + M1_change (if any)
-    size_t settlementInputCount = mtx.vin.size();    // M1 receipts + vaults
-
-    // Estimate fee based on current tx size + expected M0 fee inputs
-    // Conservative: assume 1 M0 input + 1 M0 change output
-    size_t estInputSize = 148;   // Typical P2PKH input
-    size_t estOutputSize = 34;   // Typical P2PKH output
-    size_t estTxSize = 10 +      // version, locktime, etc.
-                       settlementInputCount * 100 +  // M1 inputs (signed) + vaults (minimal)
-                       1 * estInputSize +            // 1 M0 fee input (estimated)
-                       settlementOutputCount * estOutputSize +
-                       1 * estOutputSize;            // 1 M0 change output (estimated)
-
-    CFeeRate feeRate = ::minRelayTxFee;
-    CAmount estFee = feeRate.GetFee(estTxSize);
-    if (estFee < 100) estFee = 100;  // Minimum fee floor (1 M0 = 1 sat model)
-
-    // Get M0 standard coins for fee payment
-    std::vector<COutput> vM0Coins;
-    for (const COutput& out : vCoins) {
-        COutPoint outpoint(out.tx->GetHash(), out.i);
-        if (g_settlementdb->IsM0Standard(outpoint)) {
-            vM0Coins.push_back(out);
-        }
-    }
-
-    // Select M0 coins to cover fee
-    std::set<std::pair<const CWalletTx*, unsigned int>> setFeeCoins;
-    CAmount nFeeIn = 0;
-    if (!pwallet->SelectCoinsToSpend(vM0Coins, estFee, setFeeCoins, nFeeIn)) {
-        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-            strprintf("Insufficient M0 balance for network fee. Need %s M0",
-                      FormatMoney(estFee)));
-    }
-
-    // Track M0 fee inputs for signing
-    std::vector<LockInput> feeInputs;
-    for (const auto& coin : setFeeCoins) {
-        LockInput input;
-        input.outpoint = COutPoint(coin.first->GetHash(), coin.second);
-        input.amount = coin.first->tx->vout[coin.second].nValue;
-        input.scriptPubKey = coin.first->tx->vout[coin.second].scriptPubKey;
-        feeInputs.push_back(input);
-
-        // Add M0 fee input to transaction
-        mtx.vin.emplace_back(input.outpoint);
-    }
-
-    // Calculate actual fee and M0 change
-    // Re-estimate with actual input/output count (after vault change added)
-    size_t actualOutputCount = mtx.vout.size() + 1;  // +1 for fee change to be added
-    // More accurate input sizing: signed inputs (M1 + fee) need ~148 bytes, vault inputs ~41 bytes
-    size_t signedInputCount = m1Inputs.size() + setFeeCoins.size();
-    size_t vaultInputCount = vaultInputs.size();
-    // TX_UNLOCK structure: version(4) + nType(2) + vin_count(1-3) + vout_count(1-3) + locktime(4) + extraPayload
-    // Add 10% buffer to ensure fee is always sufficient
-    estTxSize = 16 +
-                signedInputCount * 150 +      // Signed P2PKH inputs (outpoint:36 + scriptLen:1 + sig:~73 + pubkey:33 + seq:4)
-                vaultInputCount * 42 +        // OP_TRUE inputs (outpoint:36 + scriptLen:1 + script:1 + seq:4)
-                actualOutputCount * 35;       // P2PKH outputs + OP_TRUE outputs (value:8 + scriptLen:1 + script:25-26)
-    estTxSize = estTxSize * 110 / 100;        // 10% safety margin
-    CAmount actualFee = feeRate.GetFee(estTxSize);
-    if (actualFee < 100) actualFee = 100;  // Minimum fee floor (1 M0 = 1 sat model)
-
-    CAmount m0FeeChange = nFeeIn - actualFee;
-
-    // Add M0 fee change output if significant
-    if (m0FeeChange > 100) {  // Dust threshold (1 M0 = 1 sat model)
-        CPubKey feeChangePubKey;
-        if (!pwallet->GetKeyFromPool(feeChangePubKey)) {
-            throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out");
-        }
-        CScript feeChangeScript = GetScriptForDestination(feeChangePubKey.GetID());
-        mtx.vout.emplace_back(m0FeeChange, feeChangeScript);
-    } else {
-        // Add to fee if change is dust
-        actualFee = nFeeIn;
-    }
 
     // =========================================================================
     // SIGNING
@@ -487,21 +409,6 @@ static UniValue unlock(const JSONRPCRequest& request)
     // Vault inputs use OP_TRUE - no signature needed (already empty by default)
     // Vault indices: m1Inputs.size() .. m1Inputs.size() + vaultInputs.size() - 1
 
-    // Sign M0 fee inputs (indices after vaults)
-    size_t feeInputStartIdx = m1Inputs.size() + vaultInputs.size();
-    for (size_t i = 0; i < feeInputs.size(); i++) {
-        size_t vinIdx = feeInputStartIdx + i;
-        const CScript& scriptPubKey = feeInputs[i].scriptPubKey;
-        const CAmount& amount = feeInputs[i].amount;
-        SignatureData sigdata;
-        if (!ProduceSignature(TransactionSignatureCreator(pwallet, &txConst, vinIdx, amount, SIGHASH_ALL),
-                             scriptPubKey, sigdata, txConst.GetRequiredSigVersion())) {
-            throw JSONRPCError(RPC_WALLET_ERROR,
-                strprintf("Signing M0 fee input %d failed", i));
-        }
-        UpdateTransaction(mtx, vinIdx, sigdata);
-    }
-
     // Commit transaction
     CTransactionRef tx = MakeTransactionRef(std::move(mtx));
     CReserveKey reserveKey(pwallet);
@@ -523,7 +430,7 @@ static UniValue unlock(const JSONRPCRequest& request)
             strprintf("%s:%d", tx->GetHash().GetHex(), 1));
     }
     result.pushKV("vaults_used", (int)vaultInputs.size());
-    result.pushKV("fee", ValueFromAmount(actualFee));
+    result.pushKV("fee", ValueFromAmount(unlockResult.fee));
 
     return result;
 }

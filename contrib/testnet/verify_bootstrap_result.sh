@@ -29,9 +29,9 @@ fi
 
 echo ""
 echo "=== Check operator keys ==="
-if [ -f ~/.pivkey/operator_keys.json ]; then
+if [ -f ~/.BathronKey/operators.json ]; then
     echo "[OK] Operator keys exist"
-    jq -r '.operator | "MN count: " + (.mn_count | tostring) + ", pubkey: " + .pubkey[:32] + "..."' ~/.pivkey/operator_keys.json
+    jq -r '.operator | "MN count: " + (.mn_count | tostring) + ", pubkey: " + .pubkey[:32] + "..."' ~/.BathronKey/operators.json
 else
     echo "[ERROR] No operator keys found"
 fi

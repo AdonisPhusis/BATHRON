@@ -69,7 +69,7 @@ fast_deploy() {
 
     # Deploy SDK core files using SCP (force overwrite to avoid rsync caching issues)
     log_info "Syncing SDK files..."
-    $SCP "$SDK_DIR/server.py" "$SDK_DIR/requirements.txt" ubuntu@$TARGET_IP:~/pna-sdk/
+    $SCP "$SDK_DIR/server.py" "$SDK_DIR/requirements.txt" "$SDK_DIR/register_lp.py" ubuntu@$TARGET_IP:~/pna-sdk/
 
     rsync -avz \
         -e "ssh -i $SSH_KEY $SSH_OPTS" \
@@ -136,7 +136,7 @@ fast_deploy() {
 cd ~/pna-sdk
 export LP_ID='$LP_ID'
 export LP_NAME='$LP_NAME'
-nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT >> /tmp/pna-sdk.log 2>&1 &
+nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 >> /tmp/pna-sdk.log 2>&1 &
 echo \$!
 SCRIPT
 chmod +x /tmp/start_lp.sh
@@ -167,7 +167,7 @@ stop_server() {
 
 start_server() {
     log_info "Starting pna-lp server on $TARGET_IP (LP_ID=$LP_ID)..."
-    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT > /tmp/pna-sdk.log 2>&1 &"
+    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 > /tmp/pna-sdk.log 2>&1 &"
     sleep 3
     log_success "Server started: http://$TARGET_IP:$SDK_PORT/"
 }
@@ -181,7 +181,7 @@ restart_server() {
     sleep 2
 
     # Start
-    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT > /tmp/pna-sdk.log 2>&1 &"
+    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 > /tmp/pna-sdk.log 2>&1 &"
     log_info "Started (waiting 3s)..."
     sleep 3
 

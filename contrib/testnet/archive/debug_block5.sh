@@ -18,7 +18,7 @@ done
 
 echo ""
 echo "=== Operator key ==="
-$SSH ubuntu@$SEED "cat ~/.pivkey/operator_keys.json 2>/dev/null || echo 'NO KEY'"
+$SSH ubuntu@$SEED "cat ~/.BathronKey/operators.json 2>/dev/null || echo 'NO KEY'"
 
 echo ""
 echo "=== protx_list ==="

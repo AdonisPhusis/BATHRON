@@ -22,7 +22,7 @@ done
 
 echo ""
 echo "=== Get operator pubkey ==="
-OP_PUB=$(cat ~/.pivkey/operator_keys.json | jq -r '.operator.pubkey')
+OP_PUB=$(cat ~/.BathronKey/operators.json | jq -r '.operator.pubkey')
 echo "Operator: $OP_PUB"
 
 echo ""

@@ -296,7 +296,7 @@ UniValue generatebootstrap(const JSONRPCRequest& request)
             "  1. generatebootstrap 1     -> Generate block 1 (premine with collaterals)\n"
             "  2. protx register (x4)     -> Register 4 MNs using block 1 outputs 1-4\n"
             "  3. generatebootstrap 1     -> Generate block 2 (DMM activation)\n"
-            "\nBlock 1 outputs (keys in ~/.pivkey/testnet_keys.json):\n"
+            "\nBlock 1 outputs (keys in ~/.BathronKey/testnet_keys.json):\n"
             "  Output 0: Dev Wallet (98,850,000 BATHRON) - y7XRqXgz1d8ELErDxtwQPnvfbe2ZcUecka\n"
             "  Output 1: MN1 Collateral (10,000 BATHRON) - xzsv2w6ppTeqwPsSUTDDyr7Z1qNJDPjPZy\n"
             "  Output 2: MN2 Collateral (10,000 BATHRON) - y6cPRS8xg8yQLHdvFDv28JkuTpxteZvbzR\n"
@@ -367,14 +367,23 @@ UniValue generatebootstrap(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Invalid hardcoded coinbase address");
     }
 
-    // Include mempool TXs only when ProRegTx are present (final bootstrap block)
-    // Intermediate blocks (fee UTXOs, etc.) are generated without mempool to avoid
-    // deadlock between wallet notification callbacks and LOCK2(cs_main, mempool.cs)
-    bool fIncludeMempool = (nProRegCount >= nRequiredMN);
+    // Always include mempool during bootstrap.
+    // TX_BURN_CLAIM (0-fee, no wallet inputs) need to be mined during burn discovery.
+    // The original concern about wallet deadlocks does not apply to burn claims.
+    bool fIncludeMempool = true;
     LogPrintf("BATHRON Bootstrap: Generating block %d (includeMempool=%d, proReg=%d)\n",
               nCurrentHeight + 1, fIncludeMempool, nProRegCount);
 
-    return generateBlocks(nGenerate, coinbaseScript, fIncludeMempool);
+    g_fBootstrapGenerating = true;
+    UniValue result;
+    try {
+        result = generateBlocks(nGenerate, coinbaseScript, fIncludeMempool);
+    } catch (...) {
+        g_fBootstrapGenerating = false;
+        throw;
+    }
+    g_fBootstrapGenerating = false;
+    return result;
 }
 
 // clang-format off

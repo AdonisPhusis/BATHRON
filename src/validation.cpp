@@ -3268,10 +3268,10 @@ bool CheckBlockTime(const CBlockHeader& block, CValidationState& state, CBlockIn
     const int64_t blockTime = block.GetBlockTime();
     const int blockHeight = pindexPrev->nHeight + 1;
 
-    // BATHRON: Relax time checks during bootstrap phase (blocks 1-5)
+    // BATHRON: Relax time checks during bootstrap phase (blocks 1..nDMMBootstrapHeight)
     // During bootstrap, blocks are generated rapidly via generatebootstrap RPC.
     // DMM takes over timing enforcement after bootstrap is complete.
-    if (Params().IsTestnet() && blockHeight <= 5) {
+    if (blockHeight <= Params().GetConsensus().nDMMBootstrapHeight) {
         // Only enforce basic time slot alignment during bootstrap
         if (!Params().GetConsensus().IsValidBlockTimeStamp(blockTime, blockHeight))
             return state.DoS(100, error("%s : block timestamp mask not valid", __func__), REJECT_INVALID, "invalid-time-mask");

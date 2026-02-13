@@ -20,7 +20,7 @@ DAEMON="$BATHRON_ROOT/src/bathrond"
 RPC_PORT=28170
 P2P_PORT=28171
 
-# Expected values (from ~/.pivkey/testnet_keys.json and blockassembler.cpp)
+# Expected values (from ~/.BathronKey/testnet_keys.json and blockassembler.cpp)
 EXPECTED_PREMINE=98850000
 EXPECTED_DEV_AMOUNT=98769992
 EXPECTED_MN_AMOUNT=10001

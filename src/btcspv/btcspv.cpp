@@ -211,6 +211,7 @@ bool CBtcSPV::InitLocked(const std::string& datadir, bool testnet) {
             // For Signet 286000: use hardcoded genesis header (allows proper chain validation)
             if (m_testnet && cp.height == 286000) {
                 GetBtcSignetGenesisHeader(cpIndex.header);
+                cpIndex.hashPrevBlock = cpIndex.header.hashPrevBlock;
                 LogPrintf("BTC-SPV: Using hardcoded genesis header at height 286000\n");
             } else {
                 // Fallback: null header (older checkpoints)
@@ -357,7 +358,9 @@ bool CBtcSPV::StoreTipLocked() {
     // Use direct writes to avoid any batch serialization issues
     if (!m_db->Write(std::make_pair(DB_TIP_HASH, 0), m_bestTipHash)) return false;
     if (!m_db->Write(std::make_pair(DB_TIP_HEIGHT, 0), m_bestHeight)) return false;
-    if (!m_db->Write(std::make_pair(DB_TIP_WORK, 0), ArithToUint256(m_bestChainWork))) return false;
+    // fSync=true on last write: forces LevelDB WAL flush to disk.
+    // Ensures btcspv backup is complete even if process is killed shortly after.
+    if (!m_db->Write(std::make_pair(DB_TIP_WORK, 0), ArithToUint256(m_bestChainWork), true)) return false;
     return true;
 }
 
@@ -684,10 +687,12 @@ bool CBtcSPV::VerifyChainCheckpointsLocked(const BtcHeaderIndex& tip) const {
     // updated yet for the new chain we're trying to activate. Instead, walk back
     // from the tip and collect the hashes at checkpoint heights.
     //
-    // Collect required checkpoints (at or below tip height)
+    // Collect required checkpoints (at or below tip height, at or above min supported height)
+    // We only have headers from m_minSupportedHeight onward, so we can't verify
+    // checkpoints below that (they're implicitly trusted via the starting checkpoint).
     std::map<uint32_t, uint256> requiredCheckpoints;
     for (const auto& cp : m_checkpoints) {
-        if (cp.height <= tip.height) {
+        if (cp.height <= tip.height && cp.height >= m_minSupportedHeight) {
             requiredCheckpoints[cp.height] = cp.hash;
         }
     }
@@ -798,10 +803,10 @@ void CBtcSPV::UpdateBestChainLocked(const BtcHeaderIndex& newTip) {
     m_bestHeight = newTip.height;
     m_bestChainWork = newTip.GetChainWork();
 
-    // Write tip metadata
+    // Write tip metadata (fSync=true on last write to flush WAL to disk)
     m_db->Write(std::make_pair(DB_TIP_HASH, 0), m_bestTipHash);
     m_db->Write(std::make_pair(DB_TIP_HEIGHT, 0), m_bestHeight);
-    m_db->Write(std::make_pair(DB_TIP_WORK, 0), ArithToUint256(m_bestChainWork));
+    m_db->Write(std::make_pair(DB_TIP_WORK, 0), ArithToUint256(m_bestChainWork), true);
 
     LogPrint(BCLog::NET, "BTC-SPV: New tip height=%d hash=%s\n",
              m_bestHeight, m_bestTipHash.ToString().substr(0, 16));
@@ -815,6 +820,12 @@ BtcHeaderStatus CBtcSPV::AddHeader(const BtcBlockHeader& header) {
     // Check for duplicate
     BtcHeaderIndex existing;
     if (GetHeaderLocked(hash, existing)) {
+        // Tip recovery: if this header exists in DB but is beyond our current
+        // tip (e.g. headers persisted but tip wasn't due to missing fSync),
+        // update the tip so the chain state is consistent.
+        if (existing.GetChainWork() > m_bestChainWork) {
+            UpdateBestChainLocked(existing);
+        }
         return BtcHeaderStatus::DUPLICATE;
     }
 

@@ -547,7 +547,7 @@ public:
         consensus.nHuQuorumRotationBlocks = 3;      // Fast rotation (every 3 blocks)
         consensus.nHuLeaderTimeoutSeconds = 45;     // Leader timeout (was 30, increased for reliability)
         consensus.nHuFallbackRecoverySeconds = 15;  // Fallback window (was 10)
-        consensus.nDMMBootstrapHeight = 100;         // Bootstrap: generatebootstrap until DMM activation (100 blocks)
+        consensus.nDMMBootstrapHeight = 250;         // Bootstrap: header catch-up + burn claims + 20 K_FINALITY + mint + MN reg + margin
         consensus.nHuMaxReorgDepth = 0;             // No artificial limit - reorg blocked by actual HU finality only
         consensus.nStaleChainTimeout = 600;         // 10 minutes for testnet cold start recovery
 
