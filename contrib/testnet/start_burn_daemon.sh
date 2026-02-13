@@ -5,7 +5,7 @@
 # Usage:
 #   ./start_burn_daemon.sh           # Check BTC Signet, reset scan, start daemon
 #   ./start_burn_daemon.sh status    # Just show status
-#   ./start_burn_daemon.sh rescan    # Reset scan to 289200 and restart
+#   ./start_burn_daemon.sh rescan    # Reset scan to BTC_CHECKPOINT and restart
 #
 # What it does:
 #   1. Copies latest btc_burn_claim_daemon.sh to Seed
@@ -18,8 +18,12 @@ SSH="ssh -i ~/.ssh/id_ed25519_vps -o BatchMode=yes -o ConnectTimeout=30 -o Serve
 SCP="scp -i ~/.ssh/id_ed25519_vps -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 SEED_IP="57.131.33.151"
 CLI="~/BATHRON-Core/src/bathron-cli -testnet"
-BTC_CMD="~/bitcoin-27.0/bin/bitcoin-cli -datadir=~/.bitcoin-signet"
-BTC_DAEMON="~/bitcoin-27.0/bin/bitcoind -conf=~/.bitcoin-signet/bitcoin.conf"
+# Bitcoin paths — override via env if Seed layout changes
+BTC_BIN_DIR="${BTC_BIN_DIR:-~/bitcoin-27.0/bin}"
+BTC_CMD="$BTC_BIN_DIR/bitcoin-cli -datadir=~/.bitcoin-signet"
+BTC_DAEMON="$BTC_BIN_DIR/bitcoind -conf=~/.bitcoin-signet/bitcoin.conf"
+# Consensus checkpoint — must match BTCHEADERS_GENESIS_CHECKPOINT (src/btcheaders/btcheaders.h)
+BTC_CHECKPOINT=286000
 
 CMD="${1:-start}"
 
@@ -115,9 +119,9 @@ start|rescan)
         echo \"  Current scan progress: \$LAST_HEIGHT\"
 
         if [ \"$RESCAN_FLAG\" = 'true' ] || [ \"\$LAST_HEIGHT\" = '0' ]; then
-            echo '  Resetting scan to height 289200 (before post-genesis burns)...'
-            $CLI setburnscanprogress 289200 '0000000000000000000000000000000000000000000000000000000000000000' 2>/dev/null || echo '  (setburnscanprogress not available, using statefile)'
-            echo '289200' > /tmp/btc_burn_claim_daemon.state
+            echo '  Resetting scan to height $BTC_CHECKPOINT (before post-genesis burns)...'
+            $CLI setburnscanprogress $BTC_CHECKPOINT '0000000000000000000000000000000000000000000000000000000000000000' 2>/dev/null || echo '  (setburnscanprogress not available, using statefile)'
+            echo '$BTC_CHECKPOINT' > /tmp/btc_burn_claim_daemon.state
             echo '  Reset done.'
         else
             echo \"  Keeping existing progress at \$LAST_HEIGHT\"
@@ -155,7 +159,7 @@ start|rescan)
 
 rescan-from)
     # Reset scan to a specific height, restart BTC Signet if needed, restart daemon
-    RESCAN_HEIGHT="${2:-289200}"
+    RESCAN_HEIGHT="${2:-$BTC_CHECKPOINT}"
     echo "=== Resetting Burn Scan to Height $RESCAN_HEIGHT ==="
 
     # Step 1: Copy daemon script
@@ -185,15 +189,46 @@ rescan-from)
     echo "[3/5] Checking BTC Signet..."
     BTC_STATUS=$($SSH ubuntu@$SEED_IP "$BTC_CMD getblockcount 2>&1 || echo FAIL" 2>/dev/null)
     if echo "$BTC_STATUS" | grep -q "FAIL\|error\|Error"; then
-        echo "  BTC Signet DOWN - sending restart command..."
-        $SSH ubuntu@$SEED_IP "pkill -f 'bitcoind.*signet' 2>/dev/null; sleep 2; rm -f ~/.bitcoin-signet/signet/.lock 2>/dev/null; nohup $BTC_DAEMON -daemon > /tmp/btc_signet_start.log 2>&1 &; echo STARTED" 2>/dev/null || true
-        echo "  Waiting 90s for BTC Signet to start..."
-        sleep 90
+        echo "  BTC Signet DOWN - diagnosing and restarting..."
+        $SSH ubuntu@$SEED_IP "
+            # Kill any stale processes
+            pkill -9 -f 'bitcoind.*signet' 2>/dev/null || true
+            sleep 3
+
+            # Clean stale lock files
+            rm -f ~/.bitcoin-signet/signet/.lock 2>/dev/null
+            rm -f ~/.bitcoin-signet/.lock 2>/dev/null
+
+            # Diagnostic: check config exists
+            echo '  Config check:'
+            ls -la ~/.bitcoin-signet/bitcoin.conf 2>/dev/null || echo '  ERROR: bitcoin.conf not found!'
+
+            # Check disk space
+            echo '  Disk space:'
+            df -h ~/.bitcoin-signet 2>/dev/null | tail -1
+
+            # Check debug.log for crash reason
+            echo '  Last debug.log entries:'
+            tail -10 ~/.bitcoin-signet/signet/debug.log 2>/dev/null || tail -10 ~/.bitcoin-signet/debug.log 2>/dev/null || echo '  No debug.log found'
+
+            # Start bitcoind (use -daemon directly, no nohup needed)
+            echo '  Starting bitcoind...'
+            $BTC_DAEMON -daemon 2>/tmp/btc_signet_start.log && echo '  bitcoind -daemon returned OK' || echo \"  bitcoind -daemon returned error: \$(cat /tmp/btc_signet_start.log)\"
+        " 2>/dev/null || true
+        echo "  Waiting 60s for BTC Signet to sync..."
+        for WAIT in $(seq 1 12); do
+            sleep 5
+            BTC_STATUS=$($SSH ubuntu@$SEED_IP "$BTC_CMD getblockcount 2>&1 || echo FAIL" 2>/dev/null)
+            if ! echo "$BTC_STATUS" | grep -q "FAIL\|error\|Error"; then
+                echo "  BTC Signet started after ${WAIT}x5s (tip=$BTC_STATUS)"
+                break
+            fi
+            echo "  ... waiting ($((WAIT*5))s)"
+        done
         BTC_STATUS=$($SSH ubuntu@$SEED_IP "$BTC_CMD getblockcount 2>&1 || echo FAIL" 2>/dev/null)
         if echo "$BTC_STATUS" | grep -q "FAIL\|error\|Error"; then
-            echo "  WARNING: BTC Signet still unreachable."
-            echo "  Checking startup log..."
-            $SSH ubuntu@$SEED_IP "tail -5 /tmp/btc_signet_start.log 2>/dev/null; tail -5 ~/.bitcoin-signet/signet/debug.log 2>/dev/null | tail -3" 2>/dev/null || true
+            echo "  WARNING: BTC Signet still unreachable after 60s."
+            $SSH ubuntu@$SEED_IP "echo '  Processes:'; ps aux | grep bitcoin | grep -v grep; echo '  Start log:'; cat /tmp/btc_signet_start.log 2>/dev/null; echo '  Debug log tail:'; tail -10 ~/.bitcoin-signet/signet/debug.log 2>/dev/null || tail -10 ~/.bitcoin-signet/debug.log 2>/dev/null" 2>/dev/null || true
             echo "  Daemon will retry when BTC comes online."
         else
             echo "  BTC Signet OK (tip=$BTC_STATUS)"
@@ -225,8 +260,8 @@ rescan-from)
     echo "Usage: $0 [start|status|rescan|rescan-from <height>]"
     echo "  start        - Start daemon (restart BTC Signet if needed)"
     echo "  status       - Show daemon status"
-    echo "  rescan       - Reset scan to 289200 and restart daemon"
-    echo "  rescan-from  - Reset scan to specific height (default 289200)"
+    echo "  rescan       - Reset scan to $BTC_CHECKPOINT and restart daemon"
+    echo "  rescan-from  - Reset scan to specific height (default $BTC_CHECKPOINT)"
     exit 1
     ;;
 esac

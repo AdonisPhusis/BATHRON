@@ -62,6 +62,9 @@ set -e
 # Total: 5 VPS, 1 operator (pilpous), 8 masternodes, 8,000,000 M0 from burns
 # ==============================================================================
 
+# Consensus constant — must match BTCHEADERS_GENESIS_CHECKPOINT in src/btcheaders/btcheaders.h
+BTC_CHECKPOINT=286000
+
 VPS_NODES=(
     "57.131.33.151"   # Seed + 8 MNs (pilpous) + Faucet + Explorer
     "162.19.251.75"   # Core+SDK (peer only)
@@ -912,7 +915,7 @@ EOF
     fi
 
     # Get current SPV tip (should be checkpoint 286000 on fresh start)
-    local BTC_CHECKPOINT=286000
+    local BTC_CHECKPOINT=$BTC_CHECKPOINT  # from global constant
     local spv_tip=$($SSH ubuntu@$SEED_IP '~/bathron-cli -testnet getbtcsyncstatus 2>/dev/null | grep -o "\"tip_height\": *[0-9]*" | grep -o "[0-9]*" || echo "0"')
     # Enforce minimum: never sync below checkpoint (avoids syncing 286K unnecessary headers)
     if [ "$spv_tip" -lt "$BTC_CHECKPOINT" ] 2>/dev/null; then
@@ -2154,7 +2157,7 @@ genesis_step_1_spv_prepare() {
 
     # DAEMON-ONLY FLOW: No genesis_burns.json needed
     # Burns will be detected LIVE from BTC Signet by btc_burn_claim_daemon
-    local BTC_CHECKPOINT=286000
+    local BTC_CHECKPOINT=$BTC_CHECKPOINT  # from global constant
     log "BTC checkpoint: $BTC_CHECKPOINT (daemon-only flow)"
 
     # Run SPV sync
@@ -2482,7 +2485,7 @@ genesis_step_6_verify() {
     sleep 120
 
     # BTC checkpoint (daemon-only flow - no genesis_burns files needed)
-    local BTC_CHECKPOINT=286000
+    local BTC_CHECKPOINT=$BTC_CHECKPOINT  # from global constant
     log "BTC checkpoint: $BTC_CHECKPOINT"
 
     # GATE 1: height >= 4 on ALL nodes (with retry)
@@ -2696,7 +2699,7 @@ genesis_step_7_seed_daemons() {
     # CRITICAL: Only reset scan state on FRESH genesis (RESUME_FROM=0)
     # Otherwise keep existing state to avoid double-minting already-finalized burns
     log "  Starting burn claim daemon on Seed..."
-    local BTC_CHECKPOINT=286000  # BP-SPV checkpoint (daemon-only flow)
+    local BTC_CHECKPOINT=$BTC_CHECKPOINT  # from global constant  # BP-SPV checkpoint (daemon-only flow)
 
     if [ "$RESUME_FROM" -eq 0 ]; then
         log "  Fresh genesis: resetting burn scan state to checkpoint=$BTC_CHECKPOINT..."
@@ -2754,7 +2757,7 @@ if $SPV_VERIFY; then
     log "═══════════════════════════════════════════════════════════════"
 
     # BTC genesis checkpoint — all headers from this height onward must be in btcheadersdb
-    local H_REQUIRED=286000
+    local H_REQUIRED=$BTC_CHECKPOINT
     log "H_required (BTC genesis checkpoint): $H_REQUIRED"
     echo ""
 

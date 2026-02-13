@@ -14,48 +14,66 @@
 # - Bitcoin Core running on Signet with txindex=1 (on this Seed node)
 # - btcspv backup for TX_BTC_HEADERS
 
-# Robust error handling - don't exit on non-critical errors
-# Use explicit error checking for critical operations
-set +e
+# Strict mode: fail on undefined vars and pipe errors.
+# Individual commands that may fail use explicit || guards.
+set -uo pipefail
 
-# Fatal error handler
+# ── Constants (derived from consensus — src/btcspv/btcspv.cpp, src/chainparams.cpp) ──
+BTC_CHECKPOINT=286000             # Must match BTCHEADERS_GENESIS_CHECKPOINT in btcheaders.h
+K_FINALITY=20                     # Blocks before TX_MINT_M0BTC
+K_BTC_CONFS=6                     # Required BTC confirmations (Signet)
+MN_COLLATERAL_SATS=1000000        # Must match consensus.nMNCollateralAmt in chainparams.cpp
+MN_COLLATERAL_MARGIN_PCT=10       # ±10% tolerance for UTXO matching
+SEED_IP="57.131.33.151"
+SEED_PORT=27171
+BATHRON_MAGIC="42415448524f4e"    # "BATHRON" in hex
+
+# ── Paths (use $HOME, never /home/ubuntu) ──
+DATADIR=/tmp/bathron_bootstrap
+TESTNET_DIR=$DATADIR/testnet5
+CLI="$HOME/bathron-cli -datadir=$DATADIR -testnet"
+DAEMON="$HOME/bathrond -datadir=$DATADIR -testnet"
+
+# BTC Signet CLI — auto-detect bitcoin-cli location
+if [ -n "${BTC_CLI:-}" ]; then
+    : # user override
+elif [ -x "$HOME/bitcoin/bin/bitcoin-cli" ]; then
+    BTC_CLI="$HOME/bitcoin/bin/bitcoin-cli"
+else
+    # Find any bitcoin-cli under $HOME
+    BTC_CLI=$(find "$HOME" -maxdepth 3 -name bitcoin-cli -type f -executable 2>/dev/null | head -1)
+    if [ -z "$BTC_CLI" ]; then
+        echo "[FATAL] bitcoin-cli not found under $HOME"; exit 1
+    fi
+fi
+BTC_CONF="${BTC_CONF:-$HOME/.bitcoin-signet/bitcoin.conf}"
+BTC_CMD="$BTC_CLI -conf=$BTC_CONF"
+
+# ── Derived values ──
+MN_COLLATERAL_MIN=$(( MN_COLLATERAL_SATS * (100 - MN_COLLATERAL_MARGIN_PCT) / 100 ))
+MN_COLLATERAL_MAX=$(( MN_COLLATERAL_SATS * (100 + MN_COLLATERAL_MARGIN_PCT) / 100 ))
+
+# ── Error handling ──
 fatal() {
     echo "[FATAL] $1"
     echo "[FATAL] Check logs: $TESTNET_DIR/debug.log"
-    # Cleanup daemon before exit
     $CLI stop 2>/dev/null || true
-    pkill -9 -u ubuntu bathrond 2>/dev/null || true
+    pkill -9 -u "$(whoami)" bathrond 2>/dev/null || true
     exit 1
 }
 
-# Cleanup on exit (normal or error)
 cleanup_on_exit() {
     echo ""
     echo "[CLEANUP] Stopping any running daemon..."
     $CLI stop 2>/dev/null || true
     sleep 2
-    pkill -9 -u ubuntu -f "bathrond.*bathron_bootstrap" 2>/dev/null || true
+    pkill -9 -u "$(whoami)" -f "bathrond.*bathron_bootstrap" 2>/dev/null || true
 }
 trap cleanup_on_exit EXIT
 
-# Validate numeric value
 is_numeric() {
     [[ "$1" =~ ^[0-9]+$ ]]
 }
-
-DATADIR=/tmp/bathron_bootstrap
-TESTNET_DIR=$DATADIR/testnet5
-CLI="/home/ubuntu/bathron-cli -datadir=$DATADIR -testnet"
-DAEMON="/home/ubuntu/bathrond -datadir=$DATADIR -testnet"
-K_FINALITY=20
-K_BTC_CONFS=6          # Required BTC confirmations (Signet)
-BTC_CHECKPOINT=286300  # First burn at 286326 - start scan just before
-
-# BTC Signet CLI (running locally on Seed)
-BTC_CLI="${BTC_CLI:-$HOME/bitcoin-27.0/bin/bitcoin-cli}"
-BTC_CONF="${BTC_CONF:-$HOME/.bitcoin-signet/bitcoin.conf}"
-BTC_CMD="$BTC_CLI -conf=$BTC_CONF"
-BATHRON_MAGIC="42415448524f4e"  # "BATHRON" in hex
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Burn scan functions (inlined from btc_burn_claim_daemon.sh)
@@ -131,9 +149,9 @@ echo "BTC Signet CLI: $BTC_CMD"
 echo ""
 
 # Ensure latest binary
-if [ -x /home/ubuntu/BATHRON-Core/src/bathrond ]; then
-    cp -f /home/ubuntu/BATHRON-Core/src/bathrond /home/ubuntu/bathrond
-    cp -f /home/ubuntu/BATHRON-Core/src/bathron-cli /home/ubuntu/bathron-cli
+if [ -x "$HOME/BATHRON-Core/src/bathrond" ]; then
+    cp -f "$HOME/BATHRON-Core/src/bathrond" "$HOME/bathrond"
+    cp -f "$HOME/BATHRON-Core/src/bathron-cli" "$HOME/bathron-cli"
     echo "[OK] Binary updated from BATHRON-Core"
 fi
 
@@ -158,8 +176,8 @@ rm -rf $DATADIR
 mkdir -p $TESTNET_DIR
 
 # Restore btcspv (needed for Block 1 TX_BTC_HEADERS)
-if [ -f /home/ubuntu/btcspv_backup_latest.tar.gz ]; then
-    cd $TESTNET_DIR && tar xzf /home/ubuntu/btcspv_backup_latest.tar.gz
+if [ -f "$HOME/btcspv_backup_latest.tar.gz" ]; then
+    cd $TESTNET_DIR && tar xzf "$HOME/btcspv_backup_latest.tar.gz"
     # Verify btcspv has actual data (LevelDB uses WAL .log files + .ldb files)
     SPV_SIZE=$(du -sb $TESTNET_DIR/btcspv 2>/dev/null | cut -f1)
     SPV_HAS_CURRENT=$(test -f $TESTNET_DIR/btcspv/CURRENT && echo "yes" || echo "no")
@@ -168,15 +186,18 @@ if [ -f /home/ubuntu/btcspv_backup_latest.tar.gz ]; then
         fatal "btcspv backup is empty or corrupt (size=${SPV_SIZE}, CURRENT=$SPV_HAS_CURRENT)"
     fi
 else
-    fatal "No btcspv backup found at /home/ubuntu/btcspv_backup_latest.tar.gz"
+    fatal "No btcspv backup found at $HOME/btcspv_backup_latest.tar.gz"
 fi
 
 # Config
+# Generate random RPC credentials for this ephemeral bootstrap daemon
+RPC_USER="bootstrap_$(head -c 4 /dev/urandom | xxd -p)"
+RPC_PASS="$(head -c 16 /dev/urandom | xxd -p)"
 cat > $DATADIR/bathron.conf << EOF
 testnet=1
 server=1
-rpcuser=testuser
-rpcpassword=testpass123
+rpcuser=$RPC_USER
+rpcpassword=$RPC_PASS
 listen=0
 txindex=1
 EOF
@@ -452,8 +473,25 @@ sleep 1
 MINT_BLOCK=$($CLI generatebootstrap 1 2>/dev/null | jq -r ".[0]")
 echo "Mint block: $MINT_BLOCK"
 
-MINT_TXID=$($CLI getblock "$MINT_BLOCK" 2 2>/dev/null | jq -r ".tx[] | select(.type == 32) | .txid" | head -1)
-echo "Mint TXID: ${MINT_TXID:-NONE}"
+# Validate mints: count all TX_MINT_M0BTC (type=32) in the block
+MINT_TXIDS=($($CLI getblock "$MINT_BLOCK" 2 2>/dev/null | jq -r '.tx[] | select(.type == 32) | .txid' 2>/dev/null))
+MINT_TX_COUNT=${#MINT_TXIDS[@]}
+echo "TX_MINT_M0BTC count: $MINT_TX_COUNT"
+
+if [ "$MINT_TX_COUNT" -eq 0 ]; then
+    MINT_TXID=""
+    echo "Mint TXID: NONE"
+elif [ "$MINT_TX_COUNT" -eq 1 ]; then
+    MINT_TXID="${MINT_TXIDS[0]}"
+    echo "Mint TXID: $MINT_TXID"
+else
+    # Multiple mints: use first, but aggregate all collaterals from all mints
+    echo "[WARN] Multiple TX_MINT_M0BTC ($MINT_TX_COUNT) in block — aggregating all outputs"
+    MINT_TXID="${MINT_TXIDS[0]}"
+    for txid in "${MINT_TXIDS[@]}"; do
+        echo "  Mint: $txid"
+    done
+fi
 
 # Check debug log for mint info
 grep -i "CreateMintM0BTC\|eligible\|pending" $TESTNET_DIR/debug.log 2>/dev/null | tail -5
@@ -481,22 +519,38 @@ fi
 if [ "$FINAL" -gt 0 ]; then
     echo "FINAL burns: $FINAL"
 
-    # Find MN-eligible collaterals (1M sats = MN collateral)
+    # Find MN-eligible collaterals across ALL mint TXs (multi-mint safe)
     # NOTE: BATHRON getrawtransaction returns values in SATOSHIS, not BTC!
     echo ""
-    echo "═══ Finding MN Collaterals ═══"
-    MINT_TX_JSON=$($CLI getrawtransaction "$MINT_TXID" true 2>/dev/null)
+    echo "═══ Finding MN Collaterals (${MN_COLLATERAL_MIN}-${MN_COLLATERAL_MAX} sats) ═══"
     MN_COLLATERALS=""
     MN_COUNT=0
-    # Filter: 900000 sats <= value <= 1100000 sats (MN collateral with margin)
-    for VOUT in $(echo "$MINT_TX_JSON" | jq -r '.vout[] | select(.value >= 900000 and .value <= 1100000) | .n' 2>/dev/null); do
-        MN_COUNT=$((MN_COUNT + 1))
-        MN_COLLATERALS="$MN_COLLATERALS $MINT_TXID:$VOUT"
+    for SCAN_TXID in "${MINT_TXIDS[@]}"; do
+        SCAN_TX_JSON=$($CLI getrawtransaction "$SCAN_TXID" true 2>/dev/null) || continue
+        for VOUT in $(echo "$SCAN_TX_JSON" | jq -r ".vout[] | select(.value >= $MN_COLLATERAL_MIN and .value <= $MN_COLLATERAL_MAX) | .n" 2>/dev/null); do
+            MN_COUNT=$((MN_COUNT + 1))
+            MN_COLLATERALS="$MN_COLLATERALS $SCAN_TXID:$VOUT"
+        done
+        # Debug: show first mint outputs
+        if [ "$SCAN_TXID" = "$MINT_TXID" ]; then
+            echo "Mint outputs (${SCAN_TXID:0:16}...):"
+            echo "$SCAN_TX_JSON" | jq -r '.vout[] | "  vout \(.n): \(.value) sats"' 2>/dev/null | head -10
+        fi
     done
-    echo "MN-eligible collaterals: $MN_COUNT"
-    # Debug: show all vouts
-    echo "All mint outputs:"
-    echo "$MINT_TX_JSON" | jq -r '.vout[] | "  vout \(.n): \(.value) sats"' 2>/dev/null | head -10
+    echo "MN-eligible collaterals: $MN_COUNT (from $MINT_TX_COUNT mint TXs)"
+
+    # Import wallet key from ~/.BathronKey/wallet.json (needed for collateral signing)
+    WALLET_JSON="$HOME/.BathronKey/wallet.json"
+    if [ -f "$WALLET_JSON" ]; then
+        WALLET_WIF=$(jq -r '.wif' "$WALLET_JSON" 2>/dev/null)
+        WALLET_NAME=$(jq -r '.name' "$WALLET_JSON" 2>/dev/null)
+        if [ -n "$WALLET_WIF" ] && [ "$WALLET_WIF" != "null" ]; then
+            echo "Importing wallet key ($WALLET_NAME) for collateral signing..."
+            $CLI importprivkey "$WALLET_WIF" "$WALLET_NAME" false 2>/dev/null || echo "[WARN] importprivkey failed (may already exist)"
+        fi
+    else
+        echo "[WARN] ~/.BathronKey/wallet.json not found — ProReg will fail!"
+    fi
 
     echo "Rescanning blockchain for imported keys..."
     $CLI rescanblockchain 0 2>/dev/null || echo "[WARN] rescanblockchain failed"
@@ -559,9 +613,9 @@ if [ "$MN_COUNT" -gt 0 ]; then
         VOTING=$($CLI getnewaddress "voting" 2>/dev/null)
         PAYOUT=$($CLI getnewaddress "payout" 2>/dev/null)
 
-        REG_RESULT=$($CLI protx_register "$TXID" "$VOUT" "57.131.33.151:27171" "$OWNER" "$OP_PUB" "$VOTING" "$PAYOUT" 2>&1) || true
+        REG_RESULT=$($CLI protx_register "$TXID" "$VOUT" "$SEED_IP:$SEED_PORT" "$OWNER" "$OP_PUB" "$VOTING" "$PAYOUT" 2>&1) || true
         if echo "$REG_RESULT" | grep -qE "error|Error"; then
-            echo "  FAIL $TXID:$VOUT"
+            echo "  FAIL $TXID:$VOUT => $REG_RESULT"
             MN_REG_FAIL=$((MN_REG_FAIL + 1))
         else
             echo "  OK: ${REG_RESULT:0:16}..."
