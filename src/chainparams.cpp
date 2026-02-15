@@ -104,94 +104,29 @@ static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits
 }
 
 /**
- * PIVHU Genesis Block - Clean start with MN-only consensus
+ * BATHRON Genesis Block - Burn-only model (zero premine)
  *
- * MAINNET/TESTNET Distribution (99,120,000 M0 total):
- * - Swap Reserve:   98,000,000 M0 (HTLC atomic swap reserve)
- * - Dev/Test:          500,000 M0 (~0.5% development fund)
- * - Reserve:           500,000 M0 (~0.5% reserve)
- * - MN Collateral:     120,000 M0 (12 × 10,000 for initial masternodes)
+ * ALL M0 originates from verified BTC burns via SPV (invariant A5).
+ * Genesis coinbase is 0 BATHRON - symbolic only, not spendable.
+ * Block reward = 0 (always). No premine, no allocation, no exception.
  *
- * BP30 SettlementState at genesis (P1): M0_vaulted=0, M1=0
- * Block reward = 0 (supply from BTC burns only)
+ * Supply flow:
+ *   BTC Burn on Bitcoin → TX_BURN_CLAIM → K confirmations → TX_MINT_M0BTC
+ *   This is the ONLY path to create M0. Period.
  */
 static CBlock CreatePIVHUGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion)
 {
-    const char* pszTimestamp = "PIVHU Genesis Nov 2025 - Knowledge Hedge Unit - MN Consensus - Zero Block Reward";
+    const char* pszTimestamp = "BATHRON Genesis 2025 - CLS for Crypto - M0 from BTC Burns Only";
 
     CMutableTransaction txNew;
     txNew.nVersion = 1;
     txNew.vin.resize(1);
     txNew.vin[0].scriptSig = CScript() << 486604799 << CScriptNum(4) << std::vector<unsigned char>((const unsigned char*)pszTimestamp, (const unsigned char*)pszTimestamp + strlen(pszTimestamp));
 
-    // PIVHU Genesis Distribution - 4 outputs (mainnet/testnet)
-    // Note: These are placeholder addresses - replace with real addresses before mainnet launch
-    // Output 0: Swap Reserve (98,000,000 PIVHU for HTLC atomic swaps)
-    const CScript swapReserveScript = CScript() << ParseHex("04c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee51ae168fea63dc339a3c58419466ceae1061021a6e8c1b0ec7e3c0d4b2a9d2d3c") << OP_CHECKSIG;
-    // Output 1: Dev/Test Wallet (500,000 PIVHU)
-    const CScript devRewardScript = CScript() << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
-    // Output 2: Reserve (500,000 M0)
-    const CScript reserveScript = CScript() << ParseHex("0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8") << OP_CHECKSIG;
-    // Output 3: MN Collateral Pool (120,000 PIVHU = 12 × 10,000)
-    const CScript mnCollateralScript = CScript() << ParseHex("04f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672") << OP_CHECKSIG;
-
-    txNew.vout.resize(4);
-    txNew.vout[0].nValue = 98000000 * COIN;    // Swap Reserve
-    txNew.vout[0].scriptPubKey = swapReserveScript;
-    txNew.vout[1].nValue = 500000 * COIN;      // Dev/Test
-    txNew.vout[1].scriptPubKey = devRewardScript;
-    txNew.vout[2].nValue = 500000 * COIN;      // Reserve
-    txNew.vout[2].scriptPubKey = reserveScript;
-    txNew.vout[3].nValue = 120000 * COIN;      // MN Collateral Pool
-    txNew.vout[3].scriptPubKey = mnCollateralScript;
-
-    CBlock genesis;
-    genesis.vtx.push_back(std::make_shared<const CTransaction>(std::move(txNew)));
-    genesis.hashPrevBlock.SetNull();
-    genesis.nVersion = nVersion;
-    genesis.nTime    = nTime;
-    genesis.nBits    = nBits;
-    genesis.nNonce   = nNonce;
-    genesis.hashMerkleRoot = BlockMerkleRoot(genesis);
-    return genesis;
-}
-
-/**
- * BATHRON Testnet Genesis Block - Minimal (snapshot simulation)
- *
- * Genesis coinbase is NOT spendable (Bitcoin design).
- * Initial supply distributed at Block 1 via premine (simulates snapshot import).
- *
- * Block 0 (Genesis):
- *   - Coinbase: 0 BATHRON (symbolic, not spendable)
- *   - 3 MNs injected virtually into DMN list
- *
- * Block 1 (Premine):
- *   - MN1 Collateral: 10,000 BATHRON (SPENDABLE)
- *   - MN2 Collateral: 10,000 BATHRON (SPENDABLE)
- *   - MN3 Collateral: 10,000 BATHRON (SPENDABLE)
- *   - Dev Wallet: 50,000,000 BATHRON (SPENDABLE)
- *   - Faucet: 50,000,000 BATHRON (SPENDABLE)
- *   Total: 100,030,000 BATHRON
- */
-static CBlock CreatePIVHUTestnetGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion)
-{
-    const char* pszTimestamp = "BATHRON Testnet Dec 2025 - Snapshot Genesis v4 - DMM from Block 1";
-
-    CMutableTransaction txNew;
-    txNew.nVersion = 1;
-    txNew.vin.resize(1);
-    txNew.vin[0].scriptSig = CScript() << 486604799 << CScriptNum(4) << std::vector<unsigned char>((const unsigned char*)pszTimestamp, (const unsigned char*)pszTimestamp + strlen(pszTimestamp));
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // BATHRON Testnet Genesis - MINIMAL coinbase (0 BATHRON)
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Genesis coinbase is NOT spendable by Bitcoin design.
-    // All real supply comes from Block 1 premine (snapshot simulation).
-    // This output exists only because a coinbase tx must have at least 1 output.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // Coinbase must have at least 1 output (Bitcoin protocol requirement).
+    // Value = 0: no M0 created at genesis. All M0 comes from BTC burns.
     txNew.vout.resize(1);
-    txNew.vout[0].nValue = 0;  // 0 BATHRON - symbolic only
+    txNew.vout[0].nValue = 0;
     txNew.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160 << ParseHex("0000000000000000000000000000000000000000") << OP_EQUALVERIFY << OP_CHECKSIG;
 
     CBlock genesis;
@@ -206,15 +141,51 @@ static CBlock CreatePIVHUTestnetGenesisBlock(uint32_t nTime, uint32_t nNonce, ui
 }
 
 /**
- * PIVHU Regtest Genesis Block - Simplified for testing
+ * BATHRON Testnet Genesis Block - Burn-only model (zero premine)
  *
- * REGTEST Distribution (99,120,000 M0 total):
- * - Test Wallet:    50,000,000 M0 (~50% for easy testing)
- * - Swap Reserve:   48,500,000 M0 (remaining swap reserve)
- * - Reserve:           500,000 M0 (reserve)
- * - MN Collateral:     120,000 M0 (12 × 10,000 for masternodes)
+ * Block 0: Coinbase = 0 BATHRON (symbolic, not spendable)
+ * Block 1+: TX_BTC_HEADERS, then TX_BURN_CLAIM, then TX_MINT_M0BTC
  *
- * Regtest gives majority to test wallet for convenient testing of BP30 settlement operations.
+ * ALL M0 originates from verified BTC Signet burns.
+ * No premine, no snapshot, no hardcoded allocation.
+ * 3 MNs injected virtually into DMN list at genesis.
+ */
+static CBlock CreatePIVHUTestnetGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion)
+{
+    // NOTE: pszTimestamp is consensus-critical (changes genesis hash). DO NOT MODIFY.
+    const char* pszTimestamp = "BATHRON Testnet Dec 2025 - Snapshot Genesis v4 - DMM from Block 1";
+
+    CMutableTransaction txNew;
+    txNew.nVersion = 1;
+    txNew.vin.resize(1);
+    txNew.vin[0].scriptSig = CScript() << 486604799 << CScriptNum(4) << std::vector<unsigned char>((const unsigned char*)pszTimestamp, (const unsigned char*)pszTimestamp + strlen(pszTimestamp));
+
+    // Coinbase must have at least 1 output (Bitcoin protocol requirement).
+    // Value = 0: no M0 created at genesis. All M0 comes from BTC burns.
+    txNew.vout.resize(1);
+    txNew.vout[0].nValue = 0;
+    txNew.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160 << ParseHex("0000000000000000000000000000000000000000") << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    CBlock genesis;
+    genesis.vtx.push_back(std::make_shared<const CTransaction>(std::move(txNew)));
+    genesis.hashPrevBlock.SetNull();
+    genesis.nVersion = nVersion;
+    genesis.nTime    = nTime;
+    genesis.nBits    = nBits;
+    genesis.nNonce   = nNonce;
+    genesis.hashMerkleRoot = BlockMerkleRoot(genesis);
+    return genesis;
+}
+
+/**
+ * BATHRON Regtest Genesis Block - TEST-ONLY convenience premine
+ *
+ * WARNING: Regtest uses hardcoded outputs for automated test convenience.
+ * This is an INTENTIONAL deviation from the burn-only model (A5).
+ * Production networks (mainnet/testnet) have ZERO premine.
+ *
+ * These outputs are NOT tracked in settlement M0_total_supply.
+ * They exist only to facilitate regtest without requiring a BTC node.
  */
 static CBlock CreatePIVHURegtestGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion)
 {
@@ -344,10 +315,8 @@ public:
     {
         strNetworkID = "hu-main";
 
-        // PIVHU Genesis Block
-        // Timestamp: Nov 30, 2025 00:00:00 UTC (1732924800)
-        // PIVHU uses higher difficulty target initially for MN-only consensus
-        // nNonce and hashes will be mined - use placeholders for now
+        // BATHRON Mainnet Genesis - Burn-only (0 coinbase)
+        // All M0 from verified BTC burns via SPV. No premine.
         genesis = CreatePIVHUGenesisBlock(1732924800, 0, 0x1e0ffff0, 1);
         consensus.hashGenesisBlock = genesis.GetHash();
 
@@ -359,7 +328,7 @@ public:
         // ═══════════════════════════════════════════════════════════════════════
         // HU Core Economic Parameters - MAINNET
         // ═══════════════════════════════════════════════════════════════════════
-        consensus.nMaxMoneyOut = 99120000 * COIN;   // HU: 99.12M total supply at genesis
+        consensus.nMaxMoneyOut = 21000000 * COIN;   // BTC cap: max M0 = max BTC (burn-only model)
         consensus.nMNCollateralAmt = 1000000; // 1,000,000 sats = 0.01 BTC (M0 collateral)
         consensus.nMNBlockReward = 0;               // HU: Block reward = 0 (BTC burn-to-mint economy)
         consensus.nNewMNBlockReward = 0;            // HU: Block reward = 0 (BTC burn-to-mint economy)
@@ -493,16 +462,13 @@ public:
         strNetworkID = "bathron-testnet";
 
         // ═══════════════════════════════════════════════════════════════════════
-        // BATHRON Testnet Genesis v4 - Minimal (snapshot simulation)
+        // BATHRON Testnet Genesis - Burn-only (zero premine)
         // ═══════════════════════════════════════════════════════════════════════
-        // Genesis coinbase: 0 BATHRON (not spendable by Bitcoin design)
-        // Block 1 premine: 100,030,000 BATHRON (simulates snapshot import)
-        //   - MN1/2/3 Collateral: 3 × 10,000 BATHRON
-        //   - Dev Wallet: 50,000,000 BATHRON
-        //   - Faucet: 50,000,000 BATHRON
-        // 3 MNs injected virtually into DMN list at genesis
+        // Block 0: Coinbase = 0 BATHRON (symbolic, not spendable)
+        // Block 1+: TX_BTC_HEADERS → TX_BURN_CLAIM → TX_MINT_M0BTC
+        // ALL M0 from verified BTC Signet burns. No premine.
+        // 3 MNs injected virtually into DMN list at genesis.
         // ═══════════════════════════════════════════════════════════════════════
-        // Note: nNonce needs to be mined - will be done at first launch
         genesis = CreatePIVHUTestnetGenesisBlock(1733443200, 0, 0x1e0ffff0, 1);  // Dec 6, 2025
         consensus.hashGenesisBlock = genesis.GetHash();
 
@@ -515,7 +481,7 @@ public:
         // ═══════════════════════════════════════════════════════════════════════
         // HU Core Economic Parameters - TESTNET
         // ═══════════════════════════════════════════════════════════════════════
-        consensus.nMaxMoneyOut = 100030000 * COIN;  // HU: 100.03M (3×10k MN + 50M dev + 50M faucet)
+        consensus.nMaxMoneyOut = 21000000 * COIN;   // BTC cap: max M0 = max BTC (burn-only model)
         consensus.nMNCollateralAmt = 1000000; // 1,000,000 sats = 0.01 BTC (M0 collateral)
         consensus.nMNBlockReward = 0;               // HU: Block reward = 0 (BTC burn-to-mint economy)
         consensus.nNewMNBlockReward = 0;            // HU: Block reward = 0 (BTC burn-to-mint economy)
@@ -656,7 +622,8 @@ public:
 };
 
 /**
- * PIVHU Regression test - fast local testing
+ * BATHRON Regression test - fast local testing
+ * NOTE: Regtest uses convenience premine (not burn-only). See CreatePIVHURegtestGenesisBlock.
  */
 class CRegTestParams : public CChainParams
 {
@@ -665,9 +632,8 @@ public:
     {
         strNetworkID = "regtest";
 
-        // PIVHU Regtest Genesis - uses regtest-specific allocations
-        // 50M test wallet, 48.5M swap reserve, 500k T, 120k MN = 99.12M total
-        // nNonce will be mined by MineGenesisBlock utility
+        // BATHRON Regtest Genesis - convenience premine for automated tests
+        // NOT burn-only (intentional deviation for test convenience)
         genesis = CreatePIVHURegtestGenesisBlock(1732924800, 0, 0x207fffff, 1);
         consensus.hashGenesisBlock = genesis.GetHash();
 
@@ -677,7 +643,7 @@ public:
         // ═══════════════════════════════════════════════════════════════════════
         // HU Core Economic Parameters - REGTEST
         // ═══════════════════════════════════════════════════════════════════════
-        consensus.nMaxMoneyOut = 99120000 * COIN;   // HU: 99.12M total supply at genesis
+        consensus.nMaxMoneyOut = 99120000 * COIN;   // Regtest: includes convenience premine (not burn-only)
         consensus.nMNCollateralAmt = 10000 * COIN;   // 10k M0 = 0.0001 BTC (low for regtest)
         consensus.nMNBlockReward = 0;               // HU: Block reward = 0 (BTC burn-to-mint economy)
         consensus.nNewMNBlockReward = 0;            // HU: Block reward = 0 (BTC burn-to-mint economy)

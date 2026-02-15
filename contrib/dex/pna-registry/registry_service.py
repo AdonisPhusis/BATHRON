@@ -15,6 +15,7 @@ Run:
 """
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -253,10 +254,26 @@ class Registry:
         tmp_file.rename(PERSISTENCE_FILE)
 
     def register(self, address: str, endpoint: str, txid: str, height: int):
-        """Register or update an LP."""
+        """Register or update an LP.
+
+        One endpoint = one LP entry. If the same endpoint is re-registered
+        from a new address (e.g. after re-registration for tier upgrade),
+        the old entry is replaced.
+        """
         existing = self.lps.get(address)
         if existing and existing.height >= height:
             return  # Older registration, ignore
+
+        # Remove any previous entry for the same endpoint (different address)
+        stale = [
+            addr for addr, lp in self.lps.items()
+            if lp.endpoint == endpoint and addr != address and lp.height < height
+        ]
+        for addr in stale:
+            log.info(f"LP superseded: {addr} -> {endpoint} "
+                     f"(replaced by {address} at block {height})")
+            del self.lps[addr]
+
         self.lps[address] = LPEntry(
             address=address, endpoint=endpoint, txid=txid,
             height=height, reg_time=time.time()
@@ -460,51 +477,116 @@ async def block_scanner_loop():
 
 
 # =============================================================================
-# TIER VERIFIER
+# TIER VERIFIER — Operator Signature Model
+#
+# Tier 1 = registration TX signed by an MN operator.
+# Verification: lp.address == address derived from operatorPubKey.
+# One LP per unique operator key (enforced by address-keyed registry).
 # =============================================================================
 
-async def get_mn_addresses() -> Dict[str, str]:
-    """Get a map of address -> proTxHash for all valid MNs."""
-    # Call with no args — defaults to detailed=true, wallet_only=false, valid_only=false
-    # Avoids boolean type conversion issues with CLI argument passing
+_BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+_TESTNET_PUBKEY_VERSION = 139  # base58Prefixes[PUBKEY_ADDRESS] from chainparams.cpp
+
+
+def _base58_encode(data: bytes) -> str:
+    """Base58 encode raw bytes."""
+    n = int.from_bytes(data, 'big')
+    result = ''
+    while n > 0:
+        n, r = divmod(n, 58)
+        result = _BASE58_ALPHABET[r] + result
+    for byte in data:
+        if byte == 0:
+            result = _BASE58_ALPHABET[0] + result
+        else:
+            break
+    return result
+
+
+def pubkey_to_address(pubkey_hex: str,
+                      version: int = _TESTNET_PUBKEY_VERSION) -> str:
+    """Derive P2PKH address from a compressed ECDSA secp256k1 public key.
+
+    Standard Bitcoin derivation: base58check(version || RIPEMD160(SHA256(pubkey)))
+    """
+    try:
+        pubkey_bytes = bytes.fromhex(pubkey_hex)
+    except ValueError:
+        return ""
+    if len(pubkey_bytes) != 33:
+        return ""
+    sha = hashlib.sha256(pubkey_bytes).digest()
+    h160 = hashlib.new('ripemd160', sha).digest()
+    versioned = bytes([version]) + h160
+    checksum = hashlib.sha256(hashlib.sha256(versioned).digest()).digest()[:4]
+    return _base58_encode(versioned + checksum)
+
+
+async def get_operator_addresses() -> Dict[str, Dict]:
+    """Build a map of operator-derived address -> operator info.
+
+    For each MN, derive a P2PKH address from its operatorPubKey.
+    One operator key can manage N MNs, but produces one unique address.
+
+    Returns: {operator_address: {"protx": first_protx, "operator_pubkey": hex}}
+    """
     mn_list = await rpc("protx_list")
     if not mn_list or not isinstance(mn_list, list):
         return {}
 
-    addr_map = {}
+    operators: Dict[str, Dict] = {}
+    seen_pubkeys: set = set()
+
     for mn in mn_list:
         protx = mn.get("proTxHash", "")
-        state = mn.get("state", {})
+        state = mn.get("dmnstate") or mn.get("state") or {}
 
-        # Check all relevant addresses
-        for key in ("ownerAddress", "payoutAddress", "operatorPayoutAddress"):
-            addr = state.get(key) or mn.get(key)
-            if addr:
-                addr_map[addr] = protx
+        op_pubkey = state.get("operatorPubKey", "")
+        if not op_pubkey or len(op_pubkey) != 66:  # 33 bytes = 66 hex chars
+            continue
 
-    return addr_map
+        if op_pubkey in seen_pubkeys:
+            continue  # Same operator key managing multiple MNs — one address
+        seen_pubkeys.add(op_pubkey)
+
+        addr = pubkey_to_address(op_pubkey)
+        if addr:
+            operators[addr] = {
+                "protx": protx,
+                "operator_pubkey": op_pubkey,
+            }
+
+    return operators
 
 
 async def tier_verifier_loop():
-    """Background task: periodically verify MN backing for tier classification."""
-    log.info("Tier verifier started")
+    """Verify tier: LP registered from operator-derived address = Tier 1.
+
+    One LP per operator key (the address-keyed registry enforces this
+    naturally: one address = one entry).
+    """
+    log.info("Tier verifier started (operator-signature model)")
 
     while True:
         try:
-            addr_map = await get_mn_addresses()
-            if addr_map:
+            operator_map = await get_operator_addresses()
+            if operator_map:
                 for lp in registry.lps.values():
-                    protx = addr_map.get(lp.address)
-                    if protx:
+                    op_info = operator_map.get(lp.address)
+                    if op_info:
                         if lp.tier != 1:
-                            log.info(f"LP {lp.address} promoted to Tier 1 "
-                                     f"(MN: {protx[:16]}...)")
+                            log.info(
+                                f"LP {lp.endpoint} promoted to Tier 1 "
+                                f"(operator: {op_info['operator_pubkey'][:16]}...)"
+                            )
                         lp.tier = 1
-                        lp.mn_protx = protx
+                        lp.mn_protx = op_info["protx"]
                     else:
                         if lp.tier == 1:
-                            log.info(f"LP {lp.address} demoted to Tier 2 "
-                                     f"(MN no longer valid)")
+                            log.info(
+                                f"LP {lp.endpoint} demoted to Tier 2 "
+                                f"(not an operator address)"
+                            )
                         lp.tier = 2
                         lp.mn_protx = None
                 registry.save()

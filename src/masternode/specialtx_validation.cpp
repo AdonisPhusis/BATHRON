@@ -1168,9 +1168,11 @@ bool UndoSpecialTxsInBlock(const CBlock& block, const CBlockIndex* pindex, bool 
 
     CSettlementDB::Batch batch = g_settlementdb->CreateBatch();
 
-    // Load current settlement state
+    // Load current settlement state (must exist — written during ProcessSpecialTxsInBlock)
     SettlementState settlementState;
-    g_settlementdb->ReadState(pindex->nHeight, settlementState);
+    if (!g_settlementdb->ReadState(pindex->nHeight, settlementState)) {
+        return error("UndoSpecialTxsInBlock: Failed to read settlement state at height %d", pindex->nHeight);
+    }
 
     // Undo settlement transactions (in reverse order)
     for (auto it = block.vtx.rbegin(); it != block.vtx.rend(); ++it) {
@@ -1292,6 +1294,41 @@ bool UndoSpecialTxsInBlock(const CBlock& block, const CBlockIndex* pindex, bool 
     // Restore previous settlement state
     uint32_t prevHeight = pindex->pprev ? pindex->pprev->nHeight : 0;
     uint256 prevBlockHash = pindex->pprev ? pindex->pprev->GetBlockHash() : uint256();
+
+    // A5 FIX: Restore M0_total_supply from previous block's state.
+    // The undo loop above correctly reverts M0_vaulted/M1_supply via
+    // UndoLock/UndoUnlock, but M0_total_supply must be restored from
+    // the previous block to undo any TX_MINT_M0BTC in this block.
+    if (pindex->pprev) {
+        SettlementState prevSettlementState;
+        if (g_settlementdb->ReadState(prevHeight, prevSettlementState)) {
+            settlementState.M0_total_supply = prevSettlementState.M0_total_supply;
+            settlementState.burnclaims_block = prevSettlementState.burnclaims_block;
+        } else {
+            // Fallback: subtract burn amounts from this block
+            CAmount burnclaimsAmount = 0;
+            for (auto it = block.vtx.rbegin(); it != block.vtx.rend(); ++it) {
+                const CTransactionRef& tx = *it;
+                if (tx->nType == CTransaction::TxType::TX_MINT_M0BTC) {
+                    for (const CTxOut& out : tx->vout) {
+                        burnclaimsAmount += out.nValue;
+                    }
+                }
+            }
+            if (burnclaimsAmount > settlementState.M0_total_supply) {
+                return error("UndoSpecialTxsInBlock: M0_total_supply underflow "
+                             "(supply=%lld, burnclaims=%lld)",
+                             (long long)settlementState.M0_total_supply,
+                             (long long)burnclaimsAmount);
+            }
+            settlementState.M0_total_supply -= burnclaimsAmount;
+            settlementState.burnclaims_block = 0;
+        }
+    } else {
+        settlementState.M0_total_supply = 0;
+        settlementState.burnclaims_block = 0;
+    }
+
     settlementState.nHeight = prevHeight;
     settlementState.hashBlock = prevBlockHash;
     batch.WriteState(settlementState);

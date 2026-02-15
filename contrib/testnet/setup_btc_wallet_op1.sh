@@ -29,10 +29,11 @@ if [ ! -f "$BTC_BIN/bitcoind" ]; then
     exit 1
 fi
 
-echo "[2/5] Creating data directory..."
+echo "[2/5] Creating data directory and config..."
 mkdir -p $BTC_DIR
 
-# Create config if not exists
+# Ensure bitcoin.conf has RPC credentials (fix existing configs missing them)
+NEED_RESTART=false
 if [ ! -f "$BTC_DIR/bitcoin.conf" ]; then
     cat > $BTC_DIR/bitcoin.conf << 'CONF'
 # Signet config
@@ -44,10 +45,31 @@ rpcuser=btcuser
 rpcpassword=btcpass123
 rpcallowip=127.0.0.1
 CONF
+    echo "  Created bitcoin.conf"
+elif ! grep -q 'rpcuser' "$BTC_DIR/bitcoin.conf"; then
+    echo "  bitcoin.conf exists but missing RPC credentials - adding..."
+    cat >> $BTC_DIR/bitcoin.conf << 'CONF'
+
+# RPC credentials (added by setup script)
+[signet]
+rpcuser=btcuser
+rpcpassword=btcpass123
+rpcallowip=127.0.0.1
+CONF
+    NEED_RESTART=true
+else
+    echo "  bitcoin.conf OK (has RPC credentials)"
 fi
 
 echo "[3/5] Starting Bitcoin Core..."
-if pgrep -x bitcoind > /dev/null; then
+if [ "$NEED_RESTART" = "true" ]; then
+    echo "  Restarting bitcoind to pick up new config..."
+    $CLI stop 2>/dev/null || pkill -x bitcoind 2>/dev/null || true
+    sleep 3
+    $BTC_BIN/bitcoind -signet -datadir=$BTC_DIR -daemon
+    echo "  Restarted, waiting for init..."
+    sleep 10
+elif pgrep -x bitcoind > /dev/null; then
     echo "  bitcoind already running"
 else
     $BTC_BIN/bitcoind -signet -datadir=$BTC_DIR -daemon

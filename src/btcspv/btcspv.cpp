@@ -185,7 +185,10 @@ bool CBtcSPV::InitLocked(const std::string& datadir, bool testnet) {
     // Open database
     std::string dbpath = datadir + "/btcspv";
     try {
-        m_db = std::make_unique<CDBWrapper>(dbpath, 100 * 1024 * 1024, false, false);
+        // Cache size 2MB: write_buffer_size=512KB forces periodic memtable flush
+        // during header sync. 100MB was overkill for a ~2MB database and caused
+        // all data to stay in unflushed memtable, leading to incomplete backups.
+        m_db = std::make_unique<CDBWrapper>(dbpath, 2 * 1024 * 1024, false, false);
     } catch (const std::exception& e) {
         LogPrintf("BTC-SPV: Failed to open database: %s\n", e.what());
         return false;
@@ -255,6 +258,10 @@ void CBtcSPV::ShutdownLocked() {
     // MUST be called with m_cs_spv held
     if (m_db) {
         StoreTipLocked();
+        // Force memtable flush to SSTables so backups capture all data.
+        // LevelDB destructor does NOT flush the memtable — it only frees it.
+        // Without this, data exists only in WAL and may be lost during tar backup/restore.
+        m_db->Compact();
         m_db.reset();
     }
     m_headerCache.clear();

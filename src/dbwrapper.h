@@ -345,6 +345,15 @@ public:
     */
     bool IsEmpty();
 
+    /**
+     * Force compaction of all in-memory data (memtable) to on-disk SSTables.
+     * Call before creating backups to ensure LevelDB data is fully persisted.
+     */
+    void Compact()
+    {
+        pdb->CompactRange(nullptr, nullptr);
+    }
+
     template<typename K>
     size_t EstimateSize(const K& key_begin, const K& key_end) const
     {

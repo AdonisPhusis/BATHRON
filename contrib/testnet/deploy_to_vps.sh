@@ -900,12 +900,21 @@ EOF
     fi
     success "  BTC Signet tip: $btc_tip"
 
-    # Clean start: wipe ALL chain data, start daemon fresh for SPV-only sync
+    # Clean start: wipe chain data BUT preserve/restore btcspv for incremental sync
     $SSH ubuntu@$SEED_IP 'pkill -9 bathrond 2>/dev/null || true; sleep 2' 2>/dev/null
     $SSH ubuntu@$SEED_IP "
         cd $VPS_TESTNET_DIR 2>/dev/null || true
-        rm -rf btcspv blocks chainstate evodb llmq hu_finality khu sporks settlement btcheadersdb burnclaimdb index 2>/dev/null
+        rm -rf blocks chainstate evodb llmq hu_finality khu sporks settlement btcheadersdb burnclaimdb index 2>/dev/null
         rm -f .lock peers.dat banlist.dat mempool.dat mncache.dat mnmetacache.dat 2>/dev/null
+        # Restore btcspv from existing backup if dir was wiped or missing
+        if [ ! -d btcspv ] || [ ! -f btcspv/CURRENT ]; then
+            rm -rf btcspv 2>/dev/null
+            if [ -f ~/btcspv_backup_latest.tar.gz ]; then
+                tar xzf ~/btcspv_backup_latest.tar.gz 2>/dev/null && echo 'RESTORED_FROM_BACKUP'
+            fi
+        else
+            echo 'BTCSPV_PRESERVED'
+        fi
     " 2>/dev/null
     local bathron_ok=$($SSH ubuntu@$SEED_IP 'nohup ~/bathrond -testnet -daemon -noconnect -masternode=0 </dev/null >/dev/null 2>&1; sleep 15; ~/bathron-cli -testnet getblockcount >/dev/null 2>&1 && echo "yes" || echo "no"')
 
@@ -990,29 +999,39 @@ EOF
     echo ""
     success "  SPV synced to $btc_tip"
 
-    # Create updated backup — verify SPV tip and wait for clean shutdown
+    # Create updated backup — stop daemon cleanly, then verify + create backup
     log "  Creating SPV backup..."
-    # Verify btcspv tip matches expected BEFORE stopping
-    local pre_tip=$($SSH ubuntu@$SEED_IP '~/bathron-cli -testnet getbtcsyncstatus 2>/dev/null | grep -o "\"tip_height\": *[0-9]*" | grep -o "[0-9]*" || echo "0"')
-    if [ "$pre_tip" -lt "$btc_tip" ]; then
-        warn "  btcspv tip ($pre_tip) < BTC Signet ($btc_tip) — bootstrap C++ catch-up will handle gap"
-    fi
     $SSH ubuntu@$SEED_IP '
         ~/bathron-cli -testnet stop 2>/dev/null || true
-        # Wait for daemon to FULLY exit — fSync=true in StoreTipLocked ensures
-        # LevelDB WAL is flushed during clean shutdown. NO pkill -9 fallback.
-        for i in $(seq 1 120); do
-            if ! pgrep -u ubuntu bathrond >/dev/null 2>&1; then
-                break
-            fi
+        for i in $(seq 1 60); do
+            pgrep -u ubuntu bathrond >/dev/null 2>&1 || break
             sleep 1
         done
         if pgrep -u ubuntu bathrond >/dev/null 2>&1; then
-            echo "[WARN] Daemon still running after 120s — forcing kill"
+            echo "[WARN] Daemon still running after 60s — forcing kill"
             pkill -9 -u ubuntu bathrond 2>/dev/null || true
             sleep 2
         fi
     '
+    # Verify backup: restart daemon briefly to force LevelDB WAL replay, check tip, stop
+    log "  Verifying btcspv integrity (restart cycle)..."
+    local verified_tip=$($SSH ubuntu@$SEED_IP "
+        cd $VPS_TESTNET_DIR
+        ~/bathrond -testnet -daemon -noconnect -masternode=0 >/dev/null 2>&1
+        sleep 10
+        TIP=\$(~/bathron-cli -testnet getbtcsyncstatus 2>/dev/null | jq -r '.tip_height // 0' 2>/dev/null || echo '0')
+        ~/bathron-cli -testnet stop 2>/dev/null || true
+        for i in \$(seq 1 30); do
+            pgrep -u ubuntu bathrond >/dev/null 2>&1 || break
+            sleep 1
+        done
+        echo \$TIP
+    ")
+    if [ "$verified_tip" -lt "$btc_tip" ] 2>/dev/null; then
+        warn "  btcspv verified tip ($verified_tip) < BTC Signet ($btc_tip) — bootstrap fallback will sync gap"
+    else
+        success "  btcspv verified tip: $verified_tip"
+    fi
     $SSH ubuntu@$SEED_IP "
         cd $VPS_TESTNET_DIR
         [ -d btcspv ] && tar -czf ~/btcspv_backup_${btc_tip}.tar.gz btcspv
@@ -1058,6 +1077,27 @@ create_genesis_bootstrap() {
     local BOOTSTRAP_SCRIPT="$HOME/BATHRON/contrib/testnet/genesis_bootstrap_seed.sh"
     local BURN_DAEMON="$HOME/BATHRON/contrib/testnet/btc_burn_claim_daemon.sh"
 
+    # Collect ALL known wallet keys for bootstrap (so bootstrap can import them all)
+    # Burns on BTC Signet may have destination addresses of ANY known wallet
+    log "Collecting wallet keys from all VPS for bootstrap..."
+    local ALL_KEYS="["
+    local KEY_COUNT=0
+    for VPS_IP in "${VPS_NODES[@]}"; do
+        local KEY_JSON=$($SSH ubuntu@$VPS_IP "cat ~/.BathronKey/wallet.json 2>/dev/null" 2>/dev/null || echo "")
+        if [ -n "$KEY_JSON" ] && echo "$KEY_JSON" | jq -e '.wif' >/dev/null 2>&1; then
+            [ "$KEY_COUNT" -gt 0 ] && ALL_KEYS+=","
+            ALL_KEYS+="$KEY_JSON"
+            KEY_COUNT=$((KEY_COUNT + 1))
+            local W_NAME=$(echo "$KEY_JSON" | jq -r '.name' 2>/dev/null)
+            log "    $VPS_IP: $W_NAME"
+        fi
+    done
+    ALL_KEYS+="]"
+    echo "$ALL_KEYS" > /tmp/all_wallet_keys_genesis.json
+    $SCP /tmp/all_wallet_keys_genesis.json ubuntu@$SEED_IP:/tmp/all_wallet_keys.json 2>/dev/null
+    rm -f /tmp/all_wallet_keys_genesis.json
+    log "  Collected $KEY_COUNT wallet keys"
+
     # Copy files to Seed
     [ -f "$KEYS_FILE" ] && $SCP "$KEYS_FILE" ubuntu@$SEED_IP:/tmp/testnet_keys.json 2>/dev/null
     [ -f "$BURN_KEYS_FILE" ] && $SCP "$BURN_KEYS_FILE" ubuntu@$SEED_IP:/tmp/burn_dest_keys.json 2>/dev/null
@@ -1102,7 +1142,7 @@ create_genesis_bootstrap() {
 
         if echo "$LOG_STATUS" | grep -q "COMPLETE\|SUCCESS"; then
             log "Bootstrap completed successfully"
-            $SSH ubuntu@$SEED_IP 'tail -30 /tmp/genesis_bootstrap.log' 2>/dev/null || true
+            $SSH ubuntu@$SEED_IP 'tail -80 /tmp/genesis_bootstrap.log' 2>/dev/null || true
             BOOTSTRAP_EXIT=0
             break
         elif echo "$LOG_STATUS" | grep -q "FATAL\|ERROR.*failed"; then
