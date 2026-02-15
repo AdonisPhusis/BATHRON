@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # =============================================================================
@@ -51,8 +51,8 @@ PNA_UNREGISTER = "PNA|LP|01|UNREG"
 SCAN_INTERVAL_S = 60        # Scan new blocks every 60s
 HEALTH_INTERVAL_S = 30      # Health check every 30s
 TIER_REFRESH_S = 300        # Re-verify MN tiers every 5 min
-HEALTH_TIMEOUT_S = 5        # HTTP timeout for LP health checks
-OFFLINE_THRESHOLD = 3       # Consecutive failures before marking offline
+HEALTH_TIMEOUT_S = 10       # HTTP timeout for LP health checks
+OFFLINE_THRESHOLD = 50      # Consecutive failures before marking offline (high to tolerate network issues)
 BACKOFF_INTERVAL_S = 120    # Poll interval for offline LPs
 
 PERSISTENCE_FILE = Path.home() / ".bathron" / "lp_registry.json"
@@ -233,7 +233,12 @@ class Registry:
                 self.last_scanned_hash = data.get("last_scanned_hash")
                 self.last_scan_time = data.get("last_scan_time", 0)
                 for addr, lp_data in data.get("lps", {}).items():
-                    self.lps[addr] = LPEntry.from_dict(lp_data)
+                    lp = LPEntry.from_dict(lp_data)
+                    # Reset health state on startup so all LPs get checked immediately
+                    lp.fail_count = 0
+                    lp.last_checked = 0
+                    lp.status = "online"
+                    self.lps[addr] = lp
                 log.info(f"Loaded {len(self.lps)} LPs from disk, "
                          f"last scanned height: {self.last_scanned_height}")
             except Exception as e:
@@ -305,6 +310,58 @@ class Registry:
 
 # Global registry
 registry = Registry()
+
+
+# =============================================================================
+# WEBSOCKET MANAGER
+# =============================================================================
+
+class RegistryWSManager:
+    """Manage WebSocket connections for registry push updates."""
+
+    def __init__(self):
+        self.connections: List[WebSocket] = []
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.connections.append(ws)
+        log.info(f"Registry WS connected ({len(self.connections)} total)")
+
+    def disconnect(self, ws: WebSocket):
+        if ws in self.connections:
+            self.connections.remove(ws)
+
+    async def broadcast(self, msg: dict):
+        """Send to all connected WS clients."""
+        dead = []
+        for ws in self.connections:
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+
+    async def broadcast_lps(self):
+        """Broadcast full LP list to all clients."""
+        if not self.connections:
+            return
+        lps_data = registry.get_all()
+        await self.broadcast({
+            "type": "lps",
+            "data": {"lps": lps_data, "count": len(lps_data)}
+        })
+
+    async def broadcast_lp_update(self, lp: "LPEntry"):
+        """Broadcast a single LP update."""
+        if not self.connections:
+            return
+        await self.broadcast({
+            "type": "lp_update",
+            "data": lp.to_dict()
+        })
+
+registry_ws = RegistryWSManager()
 
 
 # =============================================================================
@@ -402,10 +459,12 @@ async def scan_block(height: int) -> int:
 
             if payload == "UNREG":
                 registry.unregister(sender, height)
+                asyncio.create_task(registry_ws.broadcast_lps())
             else:
                 endpoint = payload.strip()
                 if endpoint and is_valid_lp_endpoint(endpoint):
                     registry.register(sender, endpoint, tx["txid"], height)
+                    asyncio.create_task(registry_ws.broadcast_lps())
                 elif endpoint:
                     log.warning(f"Rejected invalid endpoint: {endpoint}")
 
@@ -571,7 +630,9 @@ async def tier_verifier_loop():
         try:
             operator_map = await get_operator_addresses()
             if operator_map:
+                tier_changed = False
                 for lp in registry.lps.values():
+                    prev_tier = lp.tier
                     op_info = operator_map.get(lp.address)
                     if op_info:
                         if lp.tier != 1:
@@ -589,8 +650,12 @@ async def tier_verifier_loop():
                             )
                         lp.tier = 2
                         lp.mn_protx = None
+                    if lp.tier != prev_tier:
+                        tier_changed = True
                 registry.save()
                 registry.last_tier_check = time.time()
+                if tier_changed:
+                    asyncio.create_task(registry_ws.broadcast_lps())
         except Exception as e:
             log.error(f"Tier verifier error: {e}")
 
@@ -604,6 +669,7 @@ async def tier_verifier_loop():
 async def check_lp_health(client: httpx.AsyncClient, lp: LPEntry):
     """Check a single LP's health."""
     lp.last_checked = time.time()
+    prev_status = lp.status
     try:
         resp = await client.get(
             f"{lp.endpoint}/api/status",
@@ -635,6 +701,10 @@ async def check_lp_health(client: httpx.AsyncClient, lp: LPEntry):
         log.warning(f"LP {lp.endpoint} marked OFFLINE "
                     f"({lp.fail_count} consecutive failures)")
         lp.status = "offline"
+
+    # Broadcast if status changed
+    if lp.status != prev_status:
+        asyncio.create_task(registry_ws.broadcast_lp_update(lp))
 
 
 async def health_checker_loop():
@@ -728,7 +798,44 @@ async def get_registry_status():
         "lp_count_tier1": len([lp for lp in registry.lps.values()
                                if lp.tier == 1]),
         "persistence_file": str(PERSISTENCE_FILE),
+        "ws_connections": len(registry_ws.connections),
     }
+
+
+@app.websocket("/ws")
+async def registry_websocket(ws: WebSocket):
+    """WebSocket endpoint for real-time LP discovery updates."""
+    await registry_ws.connect(ws)
+
+    # Send full LP list on connect
+    try:
+        lps_data = registry.get_all()
+        await ws.send_json({
+            "type": "lps",
+            "data": {"lps": lps_data, "count": len(lps_data)}
+        })
+    except Exception:
+        registry_ws.disconnect(ws)
+        return
+
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            text = msg.get("text")
+            if text:
+                try:
+                    raw = json.loads(text)
+                    if raw.get("type") == "ping":
+                        await ws.send_json({"type": "pong"})
+                except (json.JSONDecodeError, Exception):
+                    pass
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        registry_ws.disconnect(ws)
+        log.info(f"Registry WS disconnected ({len(registry_ws.connections)} remaining)")
 
 
 # =============================================================================

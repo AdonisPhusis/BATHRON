@@ -107,9 +107,28 @@ fast_deploy() {
         "$PROJECT_ROOT/src/bathron-cli" \
         ubuntu@$TARGET_IP:~/bathron/bin/
 
+    # Ensure firewall allows port 8080
+    log_info "Ensuring port ${SDK_PORT} is open..."
+    $SSH ubuntu@$TARGET_IP "sudo ufw allow ${SDK_PORT}/tcp 2>/dev/null || sudo iptables -C INPUT -p tcp --dport ${SDK_PORT} -j ACCEPT 2>/dev/null || sudo iptables -A INPUT -p tcp --dport ${SDK_PORT} -j ACCEPT 2>/dev/null || true"
+
+    # Deploy BTC WIF extraction script
+    if [ -f "$SDK_DIR/extract_btc_wif.py" ]; then
+        $SCP "$SDK_DIR/extract_btc_wif.py" ubuntu@$TARGET_IP:~/pna-sdk/
+    fi
+
     # Setup venv and install/update requirements
     log_info "Checking venv and requirements..."
     $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && chmod +x scripts/*.sh ~/bathron/bin/* 2>/dev/null; [ ! -d venv ] && python3 -m venv venv; ./venv/bin/pip install -q -r requirements.txt"
+
+    # Extract BTC WIF if not already in btc.json
+    if [ -f "$SDK_DIR/extract_btc_wif.py" ]; then
+        if $SSH ubuntu@$TARGET_IP "grep -q claim_wif ~/.BathronKey/btc.json 2>/dev/null"; then
+            log_info "BTC claim_wif already configured"
+        else
+            log_info "Extracting BTC claim_wif from wallet..."
+            $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && ./venv/bin/python extract_btc_wif.py --cli-path ~/bitcoin/bin/bitcoin-cli --datadir ~/.bitcoin-signet 2>&1" || log_error "WIF extraction failed (non-fatal)"
+        fi
+    fi
 
     # Kill any existing server and start fresh
     log_info "Restarting server (LP_ID=$LP_ID)..."
@@ -136,7 +155,7 @@ fast_deploy() {
 cd ~/pna-sdk
 export LP_ID='$LP_ID'
 export LP_NAME='$LP_NAME'
-nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 >> /tmp/pna-sdk.log 2>&1 &
+nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 1 >> /tmp/pna-sdk.log 2>&1 &
 echo \$!
 SCRIPT
 chmod +x /tmp/start_lp.sh
@@ -167,7 +186,7 @@ stop_server() {
 
 start_server() {
     log_info "Starting pna-lp server on $TARGET_IP (LP_ID=$LP_ID)..."
-    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 > /tmp/pna-sdk.log 2>&1 &"
+    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 1 > /tmp/pna-sdk.log 2>&1 &"
     sleep 3
     log_success "Server started: http://$TARGET_IP:$SDK_PORT/"
 }
@@ -181,7 +200,7 @@ restart_server() {
     sleep 2
 
     # Start
-    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 2 > /tmp/pna-sdk.log 2>&1 &"
+    $SSH ubuntu@$TARGET_IP "cd ~/pna-sdk && LP_ID='$LP_ID' LP_NAME='$LP_NAME' nohup ./venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port $SDK_PORT --workers 1 > /tmp/pna-sdk.log 2>&1 &"
     log_info "Started (waiting 3s)..."
     sleep 3
 
@@ -205,7 +224,7 @@ check_status() {
 }
 
 view_logs() {
-    $SSH ubuntu@$TARGET_IP "tail -50 /tmp/pna-sdk.log 2>/dev/null || echo 'No logs'"
+    $SSH ubuntu@$TARGET_IP "tail -100 /tmp/pna-sdk.log 2>/dev/null || echo 'No logs'"
 }
 
 # =============================================================================

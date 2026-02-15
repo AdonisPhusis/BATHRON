@@ -8,27 +8,29 @@ set -euo pipefail
 SSH_KEY="$HOME/.ssh/id_ed25519_vps"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
-SEED_IP="57.131.33.151"
-CORESDK_IP="162.19.251.75"
-OP1_IP="57.131.33.152"
-OP2_IP="57.131.33.214"
-OP3_IP="51.75.31.44"
-
-BATHRON_CLI="/home/ubuntu/bathron-cli -testnet"
+# VPS: NAME:IP:WALLET:CLI_PATH
+declare -a VPS_LIST=(
+    "SEED:57.131.33.151:pilpous:/home/ubuntu/BATHRON-Core/src/bathron-cli -testnet"
+    "CoreSDK:162.19.251.75:bob:/home/ubuntu/BATHRON-Core/src/bathron-cli -testnet"
+    "OP1:57.131.33.152:alice:/home/ubuntu/bathron-cli -testnet"
+    "OP2:57.131.33.214:dev:/home/ubuntu/bathron/bin/bathron-cli -testnet"
+    "OP3:51.75.31.44:charlie:/home/ubuntu/bathron-cli -testnet"
+)
 
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║              All VPS M0/M1 Balances                          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-for VPS in "SEED:$SEED_IP:pilpous" "CoreSDK:$CORESDK_IP:bob" "OP1:$OP1_IP:alice" "OP2:$OP2_IP:dev" "OP3:$OP3_IP:charlie"; do
-    NAME=$(echo $VPS | cut -d: -f1)
-    IP=$(echo $VPS | cut -d: -f2)
-    WALLET=$(echo $VPS | cut -d: -f3)
+for VPS in "${VPS_LIST[@]}"; do
+    NAME=$(echo "$VPS" | cut -d: -f1)
+    IP=$(echo "$VPS" | cut -d: -f2)
+    WALLET=$(echo "$VPS" | cut -d: -f3)
+    CLI=$(echo "$VPS" | cut -d: -f4-)
 
     printf "%-10s (%s) [%s]\n" "$NAME" "$IP" "$WALLET"
 
-    RESULT=$(ssh $SSH_OPTS "ubuntu@$IP" "$BATHRON_CLI getwalletstate true" 2>/dev/null || echo '{"error": true}')
+    RESULT=$(ssh $SSH_OPTS "ubuntu@$IP" "$CLI getwalletstate true" 2>/dev/null || echo '{"error": true}')
 
     if echo "$RESULT" | grep -q '"error"'; then
         echo "  ERROR: Could not get wallet state"
@@ -36,30 +38,41 @@ for VPS in "SEED:$SEED_IP:pilpous" "CoreSDK:$CORESDK_IP:bob" "OP1:$OP1_IP:alice"
         echo "$RESULT" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-m0 = d.get('m0_available', 0)
-m0_vaulted = d.get('m0_vaulted', 0)
-m1_receipts = d.get('m1_receipts', [])
-m1_total = sum(r['amount'] for r in m1_receipts)
-total = m0 + m1_total
-print(f'  M0: {m0:>12,} sats')
-print(f'  M1: {m1_total:>12,} sats ({len(m1_receipts)} receipts)')
+m0 = d.get('m0', {}).get('balance', 0)
+m0_unconf = d.get('m0', {}).get('unconfirmed', 0)
+m1_obj = d.get('m1', {})
+m1_total = m1_obj.get('total', 0)
+m1_count = m1_obj.get('count', 0)
+total = d.get('total_value', m0 + m1_total)
+print(f'  M0: {m0:>12,} sats' + (f' (+{m0_unconf:,} unconf)' if m0_unconf else ''))
+print(f'  M1: {m1_total:>12,} sats ({m1_count} receipts)')
 print(f'  Total: {total:>10,} sats')
+# Show M1 receipt details if any
+for r in m1_obj.get('receipts', []):
+    print(f'    - {r[\"outpoint\"]} = {r[\"amount\"]:,} sats [{r.get(\"settlement_status\",\"?\")}]')
 "
     fi
     echo ""
 done
 
-# Also check global state
+# Global state from Seed
+SEED_IP="57.131.33.151"
+SEED_CLI="/home/ubuntu/BATHRON-Core/src/bathron-cli -testnet"
+
 echo "═══ Global Settlement State ═══"
-ssh $SSH_OPTS "ubuntu@$SEED_IP" "$BATHRON_CLI getstate" 2>/dev/null | python3 -c "
+ssh $SSH_OPTS "ubuntu@$SEED_IP" "$SEED_CLI getstate" 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-m0_total = d.get('m0_total', 0)
-m0_vaulted = d.get('m0_vaulted', 0)
-m1_supply = d.get('m1_supply', 0)
+supply = d.get('supply', {})
+totals = d.get('totals', {})
+# supply uses FormatAmount (string integers), totals uses int64
+m0_total = int(supply.get('m0_total', totals.get('total_m0', 0)))
+m0_vaulted = int(supply.get('m0_vaulted', 0))
+m1_supply = int(supply.get('m1_supply', totals.get('total_m1', 0)))
+m0_circ = m0_total - m0_vaulted
 print(f'  M0 total supply: {m0_total:,} sats')
-print(f'  M0 in vault: {m0_vaulted:,} sats')
-print(f'  M1 supply: {m1_supply:,} sats')
-print(f'  M0 circulating: {m0_total - m0_vaulted:,} sats')
+print(f'  M0 vaulted:      {m0_vaulted:,} sats')
+print(f'  M0 circulating:  {m0_circ:,} sats')
+print(f'  M1 supply:       {m1_supply:,} sats')
 " || echo "  Could not get global state"
 echo ""

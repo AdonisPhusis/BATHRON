@@ -90,7 +90,7 @@ deploy_files() {
     log_info "Deploying pna files..."
 
     # Create directories
-    $SSH ubuntu@$CORE_SDK_IP "mkdir -p ~/pna/css ~/pna/js ~/pna/img"
+    $SSH ubuntu@$CORE_SDK_IP "mkdir -p ~/pna/css ~/pna/js ~/pna/img ~/pna/exploreur"
 
     # Copy files one by one
     log_info "Copying index.html..."
@@ -101,6 +101,10 @@ deploy_files() {
 
     log_info "Copying pna.js..."
     $SCP "$pna_DIR/js/pna.js" ubuntu@$CORE_SDK_IP:~/pna/js/
+
+    log_info "Copying exploreur..."
+    $SCP "$pna_DIR/js/exploreur.js" ubuntu@$CORE_SDK_IP:~/pna/js/
+    $SCP "$pna_DIR/exploreur/index.html" ubuntu@$CORE_SDK_IP:~/pna/exploreur/
 
     log_info "Copying images..."
     $SCP "$pna_DIR/img/"* ubuntu@$CORE_SDK_IP:~/pna/img/ 2>/dev/null || true
@@ -117,10 +121,20 @@ deploy_files() {
 start_server() {
     log_info "Starting web server on port $WEB_PORT..."
 
-    $SSH ubuntu@$CORE_SDK_IP "cat > /tmp/start_pna.sh << 'SCRIPT'
+    $SSH ubuntu@$CORE_SDK_IP "cat > ~/pna/nocache_server.py << 'PYEOF'
+import http.server, sys
+class H(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        super().end_headers()
+http.server.HTTPServer(('', int(sys.argv[1])), H).serve_forever()
+PYEOF
+cat > /tmp/start_pna.sh << 'SCRIPT'
 #!/bin/bash
 cd ~/pna
-nohup python3 -m http.server $WEB_PORT >> /tmp/pna.log 2>&1 &
+nohup python3 nocache_server.py $WEB_PORT >> /tmp/pna.log 2>&1 &
 echo \$!
 SCRIPT
 chmod +x /tmp/start_pna.sh
