@@ -92,8 +92,8 @@ register)
     echo "=== Register LP from Operator Address (Tier 1) ==="
     echo ""
 
-    # Step 1: Get operator pubkey
-    echo "[1/5] Getting operator pubkey from Seed..."
+    # Step 1: Get operator pubkey + private key from Seed
+    echo "[1/6] Getting operator key from Seed..."
     OP_PUBKEY=$(get_operator_pubkey)
     if [ -z "$OP_PUBKEY" ] || [ ${#OP_PUBKEY} -ne 66 ]; then
         echo "  ERROR: Could not get operator pubkey (got: '$OP_PUBKEY')"
@@ -105,9 +105,38 @@ register)
     echo "  Operator address: $OP_ADDR"
     echo ""
 
-    # Step 2: Check if operator address has UTXOs on Seed
-    echo "[2/5] Checking operator address balance on Seed..."
-    OP_BALANCE=$($SSH ubuntu@$SEED_IP "$CLI listunspent 1 9999999 '[\"$OP_ADDR\"]' 2>/dev/null | python3 -c 'import sys,json; data=json.load(sys.stdin); print(sum(int(u[\"amount\"]) for u in data))'" 2>/dev/null)
+    # Step 2: Import operator private key into Seed wallet
+    # The WIF key is in ~/.BathronKey/operators.json (used by bathrond for block signing)
+    # but NOT imported into the wallet. We need it in the wallet to spend from the
+    # operator-derived address.
+    echo "[2/6] Importing operator key into Seed wallet..."
+    OP_WIF=$($SSH ubuntu@$SEED_IP "python3 -c \"
+import json
+d = json.load(open('/home/ubuntu/.BathronKey/operators.json'))
+print(d.get('operator', {}).get('wif') or d.get('operators', {}).get('pilpous', {}).get('wif', ''))
+\" 2>/dev/null" 2>/dev/null)
+    if [ -z "$OP_WIF" ]; then
+        echo "  ERROR: Could not read operator WIF from ~/.BathronKey/operators.json"
+        exit 1
+    fi
+    echo "  WIF key found (${#OP_WIF} chars)"
+
+    IMPORT_RESULT=$($SSH ubuntu@$SEED_IP "$CLI importprivkey '$OP_WIF' 'operator' false 2>&1" 2>/dev/null)
+    if echo "$IMPORT_RESULT" | grep -qi "error"; then
+        # "already in the wallet" is not an error
+        if echo "$IMPORT_RESULT" | grep -qi "already"; then
+            echo "  Key already in wallet"
+        else
+            echo "  Import result: $IMPORT_RESULT"
+        fi
+    else
+        echo "  Key imported (label: operator)"
+    fi
+    echo ""
+
+    # Step 3: Check if operator address has UTXOs
+    echo "[3/6] Checking operator address balance on Seed..."
+    OP_BALANCE=$($SSH ubuntu@$SEED_IP "$CLI listunspent 0 9999999 '[\"$OP_ADDR\"]' 2>/dev/null | python3 -c 'import sys,json; data=json.load(sys.stdin); print(sum(int(u[\"amount\"]) for u in data))'" 2>/dev/null)
     echo "  Operator address balance: ${OP_BALANCE:-0} sats"
 
     if [ "${OP_BALANCE:-0}" -lt 100 ] 2>/dev/null; then
@@ -119,24 +148,21 @@ register)
     fi
     echo ""
 
-    # Step 3: Import operator key on Seed (idempotent — Seed already has it)
-    # The operator key is already loaded by bathrond for block production.
-    # We just need a UTXO at the derived address.
-
-    # Step 4: Upload register_lp.py and register LP
+    # Step 4: Upload register_lp.py
     LP_ENDPOINT="${2:-http://$OP1_IP:8080}"
-    echo "[3/5] Uploading register_lp.py to Seed..."
+    echo "[4/6] Uploading register_lp.py to Seed..."
     $SCP "$REGISTER_SCRIPT" ubuntu@$SEED_IP:/tmp/register_lp.py 2>/dev/null
     echo "  Done."
     echo ""
 
-    echo "[4/5] Registering LP ($LP_ENDPOINT) from operator address..."
+    # Step 5: Register LP from operator address
+    echo "[5/6] Registering LP ($LP_ENDPOINT) from operator address..."
     RESULT=$($SSH ubuntu@$SEED_IP "python3 /tmp/register_lp.py --endpoint '$LP_ENDPOINT' --operator-pubkey '$OP_PUBKEY' 2>&1" 2>/dev/null)
     echo "$RESULT"
     echo ""
 
-    # Step 5: Wait for confirmation + registry scan
-    echo "[5/5] Waiting for block confirmation + registry scan (90s)..."
+    # Step 6: Wait for confirmation + registry scan
+    echo "[6/6] Waiting for block confirmation + registry scan (90s)..."
     sleep 90
 
     echo ""
