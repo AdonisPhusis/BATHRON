@@ -93,6 +93,10 @@ class M1Htlc3S:
         """
         Claim 3-secret HTLC with all 3 preimages.
 
+        For covenant HTLCs, the C++ RPC automatically constructs the
+        Settlement Pivot TX: the claim output is forced to covenant_dest
+        (OP_TEMPLATEVERIFY enforcement). This creates HTLC-3 atomically.
+
         Args:
             htlc_outpoint: HTLC3S to claim (txid:vout)
             S_user: User's preimage (64 hex)
@@ -100,7 +104,9 @@ class M1Htlc3S:
             S_lp2: LP2's preimage (64 hex)
 
         Returns:
-            {"txid": "...", "receipt_outpoint": "...", "amount": ...}
+            Standard:  {"txid", "type": "standard", "receipt_outpoint", "amount"}
+            Covenant:  {"txid", "type": "pivot", "receipt_outpoint", "amount",
+                        "covenant_fee", "covenant_dest"}
         """
         log.info(f"Claiming M1 HTLC3S: {htlc_outpoint}")
 
@@ -111,7 +117,11 @@ class M1Htlc3S:
         if not result:
             raise RuntimeError("HTLC3S claim failed")
 
-        log.info(f"M1 HTLC3S claimed: txid={result.get('txid')}")
+        pivot_type = result.get("type", "unknown")
+        log.info(f"M1 HTLC3S claimed: txid={result.get('txid')}, type={pivot_type}")
+        if pivot_type == "pivot":
+            log.info(f"  Settlement Pivot: receipt={result.get('receipt_outpoint')}, "
+                     f"dest={result.get('covenant_dest')}")
         return result
 
     def refund(self, htlc_outpoint: str) -> Dict:
@@ -178,6 +188,14 @@ class M1Htlc3S:
                 resolve_txid=r.get("resolve_txid"),
             ))
         return records
+
+    def get_receipt_info(self, outpoint: str) -> Optional[Dict]:
+        """Get amount and details for a specific M1 receipt outpoint."""
+        receipts = self.client.list_m1_receipts()
+        for r in receipts:
+            if r.get("outpoint") == outpoint:
+                return r
+        return None
 
     def ensure_receipt_available(self, amount: int) -> str:
         """

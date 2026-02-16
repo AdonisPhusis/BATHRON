@@ -1139,30 +1139,28 @@ async def get_quote(
     to_amount = round(amount * effective_rate, ASSETS[to_asset]["decimals"])
 
     # Check inventory (accounting for active reservations)
-    # Note: inventory is stored in "coin" units (e.g., 0.005 M1 = 500,000 sats)
-    # to_amount is in smallest units (sats for M1), so convert for comparison
+    # to_amount and inventory are in the same units per asset (human for BTC/USDC, sats for M1)
+    _INV_KEY = {"BTC": "btc", "M1": "m1", "USDC": "usdc", "PIVX": "pivx", "DASH": "dash", "ZEC": "zec"}
     with _flowswap_lock:
         available = _get_available_inventory()
+
+    # Cap max_amount by output asset's available inventory
+    output_key = _INV_KEY.get(to_asset)
+    if output_key and effective_rate > 0:
+        output_avail = available.get(output_key, 0)
+        if output_avail > 0:
+            max_amount = min(max_amount, output_avail / effective_rate)
+
+    # Check output inventory covers this specific amount
     inventory_ok = True
-    to_amount_coins = to_amount / (10 ** ASSETS[to_asset]["decimals"])
-    if to_asset == "BTC":
-        inventory_ok = available.get("btc", 0) >= to_amount_coins
-    elif to_asset == "M1":
-        inventory_ok = available.get("m1", 0) >= to_amount_coins
-    elif to_asset == "USDC":
-        inventory_ok = available.get("usdc", 0) >= to_amount_coins
-    elif to_asset == "PIVX":
-        inventory_ok = available.get("pivx", 0) >= to_amount_coins
-    elif to_asset == "DASH":
-        inventory_ok = available.get("dash", 0) >= to_amount_coins
-    elif to_asset == "ZEC":
-        inventory_ok = available.get("zec", 0) >= to_amount_coins
+    if output_key:
+        inventory_ok = available.get(output_key, 0) >= to_amount
 
     # Check amount limits
     if amount < min_amount:
         raise HTTPException(400, f"Amount below minimum: {min_amount} {from_asset}")
     if amount > max_amount:
-        raise HTTPException(400, f"Amount above maximum: {max_amount} {from_asset}")
+        raise HTTPException(400, f"Amount above maximum: {max_amount:.8f} {from_asset}")
 
     # Get settlement time with LP's confirmation config
     settlement_seconds, conf_required, conf_breakdown = get_settlement_time(
@@ -1312,29 +1310,28 @@ async def get_quote_leg(
     # Calculate output
     to_amount = round(amount * effective_rate, ASSETS[to_asset]["decimals"])
 
-    # Check inventory
+    # Check inventory (to_amount and inventory are in same units per asset)
+    _INV_KEY = {"BTC": "btc", "M1": "m1", "USDC": "usdc", "PIVX": "pivx", "DASH": "dash", "ZEC": "zec"}
     with _flowswap_lock:
         available = _get_available_inventory()
+
+    # Cap max_amount by output asset's available inventory
+    output_key = _INV_KEY.get(to_asset)
+    if output_key and effective_rate > 0:
+        output_avail = available.get(output_key, 0)
+        if output_avail > 0:
+            max_amount = min(max_amount, output_avail / effective_rate)
+
+    # Check output inventory covers this specific amount
     inventory_ok = True
-    to_amount_coins = to_amount / (10 ** ASSETS[to_asset]["decimals"])
-    if to_asset == "BTC":
-        inventory_ok = available.get("btc", 0) >= to_amount_coins
-    elif to_asset == "M1":
-        inventory_ok = available.get("m1", 0) >= to_amount_coins
-    elif to_asset == "USDC":
-        inventory_ok = available.get("usdc", 0) >= to_amount_coins
-    elif to_asset == "PIVX":
-        inventory_ok = available.get("pivx", 0) >= to_amount_coins
-    elif to_asset == "DASH":
-        inventory_ok = available.get("dash", 0) >= to_amount_coins
-    elif to_asset == "ZEC":
-        inventory_ok = available.get("zec", 0) >= to_amount_coins
+    if output_key:
+        inventory_ok = available.get(output_key, 0) >= to_amount
 
     # Check limits
     if amount < min_amount:
         raise HTTPException(400, f"Amount below minimum: {min_amount} {from_asset}")
     if amount > max_amount:
-        raise HTTPException(400, f"Amount above maximum: {max_amount} {from_asset}")
+        raise HTTPException(400, f"Amount above maximum: {max_amount:.8f} {from_asset}")
 
     # Settlement time
     settlement_seconds, conf_required, conf_breakdown = get_settlement_time(
@@ -2669,11 +2666,23 @@ def get_evm_htlc_3s() -> Optional["EVMHTLC3S"]:
     return _sdk_evm_htlc_3s
 
 
+def _check_key_file_perms(key_path: Path) -> None:
+    """Warn if key file has unsafe permissions (should be 0o600)."""
+    try:
+        mode = key_path.stat().st_mode & 0o777
+        if mode != 0o600:
+            log.warning(f"SECURITY: {key_path} has permissions {oct(mode)} — should be 0600. "
+                        f"Run: chmod 600 {key_path}")
+    except Exception:
+        pass
+
+
 def _load_lp_btc_key() -> Dict:
     """Load LP1 BTC claim key from ~/.BathronKey/btc.json."""
     key_path = Path.home() / ".BathronKey" / "btc.json"
     if not key_path.exists():
         return {}
+    _check_key_file_perms(key_path)
     try:
         with open(key_path) as f:
             return json.load(f)
@@ -2696,6 +2705,7 @@ def _load_evm_private_key() -> Optional[str]:
     # Priority 1: LP-specific key file
     lp_path = Path.home() / ".keys" / "lp_evm.json"
     if lp_path.exists():
+        _check_key_file_perms(lp_path)
         try:
             with open(lp_path) as f:
                 data = json.load(f)
@@ -2710,6 +2720,7 @@ def _load_evm_private_key() -> Optional[str]:
     # Priority 2: Standard BathronKey path
     std_path = Path.home() / ".BathronKey" / "evm.json"
     if std_path.exists():
+        _check_key_file_perms(std_path)
         try:
             with open(std_path) as f:
                 data = json.load(f)
@@ -3240,7 +3251,7 @@ def _launch_recovery_retry(swap_id: str, fs: dict,
                     else:
                         log.warning(f"Recovery retry: {swap_id} EVM claim failed: {evm_result.error}")
 
-            # Retry M1 claim
+            # Retry M1 claim (Settlement Pivot)
             if needs_m1 and fs.get("m1_htlc_outpoint"):
                 S_user = fs.get("S_user", "")
                 S_lp1 = fs.get("S_lp1", "")
@@ -3256,9 +3267,15 @@ def _launch_recovery_retry(swap_id: str, fs: dict,
                         )
                         with _flowswap_lock:
                             fs["m1_claim_txid"] = m1_result.get("txid")
+                            pivot_type = m1_result.get("type", "standard")
+                            fs["m1_pivot_type"] = pivot_type
+                            if pivot_type == "pivot":
+                                fs["m1_pivot_receipt"] = m1_result.get("receipt_outpoint")
+                                fs["m1_covenant_dest"] = m1_result.get("covenant_dest")
                             fs["updated_at"] = int(time.time())
                             _save_flowswap_db()
-                        log.info(f"Recovery retry: {swap_id} M1 claim OK, txid={m1_result.get('txid')}")
+                        log.info(f"Recovery retry: {swap_id} M1 Settlement Pivot OK, "
+                                 f"type={pivot_type}, txid={m1_result.get('txid')}")
                     except Exception as e:
                         log.warning(f"Recovery retry: {swap_id} M1 claim failed: {e}")
 
@@ -3807,6 +3824,8 @@ async def _flowswap_init_btc_to_usdc(req: FlowSwapInitRequest, client_ip: str = 
         "created_at": now,
         "updated_at": now,
         "completed_at": None,
+        # Covenant target (LP's own M1 address for same-LP, LP_OUT's for per-leg)
+        "lp_out_m1_address": _lp_addresses.get("m1", ""),
     }
     _save_flowswap_db()
 
@@ -3950,6 +3969,8 @@ async def _flowswap_init_usdc_to_btc(req: FlowSwapInitRequest, client_ip: str = 
         "created_at": now,
         "updated_at": now,
         "completed_at": None,
+        # Covenant target (LP's own M1 address for same-LP, LP_OUT's for per-leg)
+        "lp_out_m1_address": _lp_addresses.get("m1", ""),
     }
     _save_flowswap_db()
 
@@ -4315,6 +4336,9 @@ def _do_lp_lock_forward(swap_id: str):
     Lock order: M1 first (cheaper to lose on partial failure), then USDC.
     Idempotency: checks _lp_locking flag to prevent duplicate threads.
     """
+    from sdk.core import validate_timelock_cascade
+    validate_timelock_cascade("forward")  # Fail fast if timelocks misconfigured
+
     with _flowswap_lock:
         fs = flowswap_db.get(swap_id)
         if not fs:
@@ -4362,13 +4386,13 @@ def _do_lp_lock_forward(swap_id: str):
             if not still_exists:
                 raise Exception("BTC TX disappeared from mempool (possible RBF replacement)")
 
-        # Step 0 (per-leg only): Pre-sign BTC claim TX BEFORE locking M1.
+        # Step 0: Pre-sign BTC claim TX BEFORE locking M1.
         # If signing fails → abort. No funds locked, no risk.
         # In segwit P2WSH, sighash covers TX structure but NOT witness
         # secrets (S_user, S_lp1, S_lp2). So we can pre-sign now and
         # assemble the full witness later when secrets are known.
         is_perleg = fs.get("is_perleg", False)
-        if is_perleg and fs.get("btc_htlc_address") and fs.get("btc_redeem_script"):
+        if fs.get("btc_htlc_address") and fs.get("btc_redeem_script"):
             btc_3s_presign = get_btc_htlc_3s()
             if btc_3s_presign:
                 lp1_claim_wif = fs.get("lp1_claim_wif", "")
@@ -4416,9 +4440,9 @@ def _do_lp_lock_forward(swap_id: str):
                 raise Exception("M1 HTLC3S client not available")
             covenant_c3 = None
             covenant_dest = None
-            if is_perleg and fs.get("lp_out_m1_address"):
+            if fs.get("lp_out_m1_address"):
                 m1_claim_address = fs["lp_out_m1_address"]
-                log.info(f"FlowSwap {swap_id}: Per-leg mode — M1 claim_address → LP_OUT: {m1_claim_address[:16]}...")
+                log.info(f"FlowSwap {swap_id}: M1 claim → covenant target: {m1_claim_address[:16]}...")
                 # Compute C3 covenant template hash (forces claim TX output → LP_OUT)
                 try:
                     c3_result = m1_3s.client.htlc3s_compute_c3(
@@ -4435,6 +4459,16 @@ def _do_lp_lock_forward(swap_id: str):
                 raise Exception("M1 claim address not configured — cannot create HTLC")
 
             receipt_outpoint = m1_3s.ensure_receipt_available(fs["m1_amount_sats"])
+            # Get actual receipt amount (may be larger than m1_amount_sats)
+            # C3 covenant hash must match the real HTLC amount, not the swap amount
+            if covenant_c3:
+                receipt_info = m1_3s.get_receipt_info(receipt_outpoint)
+                actual_amount = receipt_info.get("amount", fs["m1_amount_sats"]) if receipt_info else fs["m1_amount_sats"]
+                if actual_amount != fs["m1_amount_sats"]:
+                    log.info(f"FlowSwap {swap_id}: Receipt {actual_amount} sats > swap {fs['m1_amount_sats']} sats — recomputing C3")
+                    c3_result = m1_3s.client.htlc3s_compute_c3(actual_amount, covenant_dest)
+                    covenant_c3 = c3_result.get("template_hash")
+                    log.info(f"FlowSwap {swap_id}: C3 recomputed for {actual_amount} sats: {covenant_c3[:16]}...")
             m1_result = m1_3s.create_htlc(
                 receipt_outpoint=receipt_outpoint,
                 H_user=fs["H_user"],
@@ -4563,6 +4597,8 @@ def _do_lp_lock_reverse(swap_id: str):
     Lock order: M1 first (cheap), then BTC (expensive).
     Idempotency: checks _lp_locking flag to prevent duplicate threads.
     """
+    from sdk.core import validate_timelock_cascade
+    validate_timelock_cascade("reverse")  # Fail fast if timelocks misconfigured
     from sdk.core import (
         FLOWSWAP_REV_TIMELOCK_M1_BLOCKS,
         FLOWSWAP_REV_TIMELOCK_BTC_BLOCKS,
@@ -4585,11 +4621,33 @@ def _do_lp_lock_reverse(swap_id: str):
         if not m1_3s:
             raise Exception("M1 HTLC3S client not available")
 
-        lp_m1_address = _lp_addresses.get("m1", "")
+        lp_m1_address = fs.get("lp_out_m1_address") or _lp_addresses.get("m1", "")
         if not lp_m1_address:
             raise Exception("LP M1 address not configured — cannot create HTLC")
 
+        # Compute C3 covenant (Settlement Pivot — mandatory for all swaps)
+        covenant_c3 = None
+        covenant_dest = None
+        try:
+            c3_result = m1_3s.client.htlc3s_compute_c3(
+                fs["m1_amount_sats"], lp_m1_address
+            )
+            covenant_c3 = c3_result.get("template_hash")
+            covenant_dest = lp_m1_address
+            log.info(f"FlowSwap {swap_id}: Covenant C3={covenant_c3[:16]}... → {covenant_dest[:16]}...")
+        except Exception as e:
+            raise Exception(f"C3 covenant computation failed: {e}")
+
         receipt_outpoint = m1_3s.ensure_receipt_available(fs["m1_amount_sats"])
+        # Recompute C3 if receipt amount differs from swap amount
+        if covenant_c3:
+            receipt_info = m1_3s.get_receipt_info(receipt_outpoint)
+            actual_amount = receipt_info.get("amount", fs["m1_amount_sats"]) if receipt_info else fs["m1_amount_sats"]
+            if actual_amount != fs["m1_amount_sats"]:
+                log.info(f"FlowSwap {swap_id}: Receipt {actual_amount} sats > swap {fs['m1_amount_sats']} sats — recomputing C3")
+                c3_result = m1_3s.client.htlc3s_compute_c3(actual_amount, covenant_dest)
+                covenant_c3 = c3_result.get("template_hash")
+                log.info(f"FlowSwap {swap_id}: C3 recomputed for {actual_amount} sats: {covenant_c3[:16]}...")
         m1_result = m1_3s.create_htlc(
             receipt_outpoint=receipt_outpoint,
             H_user=fs["H_user"],
@@ -4597,12 +4655,18 @@ def _do_lp_lock_reverse(swap_id: str):
             H_lp2=fs["H_lp2"],
             claim_address=lp_m1_address,
             expiry_blocks=FLOWSWAP_REV_TIMELOCK_M1_BLOCKS,
+            template_commitment=covenant_c3,
+            covenant_dest_address=covenant_dest,
         )
 
         with _flowswap_lock:
             fs["m1_htlc_outpoint"] = m1_result.get("htlc_outpoint")
             fs["m1_htlc_txid"] = m1_result.get("txid")
-        log.info(f"FlowSwap {swap_id}: M1 locked, outpoint={m1_result.get('htlc_outpoint')}")
+            fs["m1_has_covenant"] = m1_result.get("has_covenant", False)
+            if covenant_c3:
+                fs["m1_covenant_c3"] = covenant_c3
+        log.info(f"FlowSwap {swap_id}: M1 locked, outpoint={m1_result.get('htlc_outpoint')}, "
+                 f"covenant={m1_result.get('has_covenant', False)}")
 
         # Step 2: Create + fund BTC HTLC (expensive — real BTC at risk)
         btc_3s = get_btc_htlc_3s()
@@ -4826,15 +4890,10 @@ async def flowswap_status(swap_id: str):
     m1_sats = fs.get("m1_amount_sats", 0)
     usdc_amount = fs.get("usdc_amount", 0)
 
-    # 2-leg breakdown: BTC→M1 + M1→USDC
-    # Leg 1: BTC→M1 — LP receives BTC, locks M1 (1 BTC = 100M M1, fixed)
+    # 4-HTLC breakdown
     leg1_m1_locked = btc_sats  # 1:1 BTC sats = M1 sats
-    # Leg 2: M1→USDC — LP locks USDC, M1 returns via covenant
-    # LP PnL: oracle-free, based on spread applied at swap time
-    # PnL_M1 = volume_sats * spread / 100 (always >= 0)
     spread_applied = fs.get("spread_applied", 0)
     lp_pnl_m1 = round(btc_sats * spread_applied / 100) if btc_sats > 0 else 0
-    # PnL in USDC: derive from executed rate
     lp_pnl_usdc = round(lp_pnl_m1 * (usdc_amount / btc_amount if btc_amount > 0 else 0) / 100_000_000, 4)
 
     rate_exec = usdc_amount / btc_amount if btc_amount > 0 else 0
@@ -4846,17 +4905,40 @@ async def flowswap_status(swap_id: str):
         "to_asset": fs.get("to_asset", "USDC"),
         "btc_amount_sats": btc_sats,
         "usdc_amount": usdc_amount,
-        # 2-leg breakdown
+        # 4-HTLC legs (Settlement Pivot model)
         "legs": {
-            "leg1_btc_to_m1": {
-                "from": f"{btc_amount:.8f} BTC",
-                "to": f"{leg1_m1_locked:,} M1",
-                "rate": "1 BTC = 100,000,000 M1 (fixed)",
+            "htlc1_btc": {
+                "type": "BTC P2WSH 3-secret",
+                "direction": "User → LP",
+                "amount": f"{btc_amount:.8f} BTC",
+                "txid": fs.get("btc_fund_txid"),
+                "claim_txid": fs.get("btc_claim_txid"),
+                "status": "claimed" if fs.get("btc_claim_txid") else ("funded" if fs.get("btc_fund_txid") else "pending"),
             },
-            "leg2_m1_to_usdc": {
-                "from": f"{leg1_m1_locked:,} M1",
-                "to": f"{usdc_amount:.2f} USDC",
-                "rate": f"1 BTC = {rate_exec:,.0f} USDC (effective)",
+            "htlc2_m1_covenant": {
+                "type": "M1 HTLC3S + OP_TEMPLATEVERIFY",
+                "direction": "LP → covenant",
+                "amount": f"{leg1_m1_locked:,} M1 sats",
+                "outpoint": fs.get("m1_htlc_outpoint", ""),
+                "claim_txid": fs.get("m1_claim_txid"),
+                "status": "claimed" if fs.get("m1_claim_txid") else ("locked" if fs.get("m1_htlc_outpoint") else "pending"),
+            },
+            "htlc3_pivot": {
+                "type": "Settlement Pivot (covenant-forced)",
+                "direction": "covenant → LP",
+                "amount": f"{leg1_m1_locked:,} M1 sats",
+                "receipt": fs.get("m1_pivot_receipt"),
+                "pivot_type": fs.get("m1_pivot_type"),
+                "status": "created" if fs.get("m1_pivot_receipt") else ("pending" if fs.get("m1_htlc_outpoint") else "n/a"),
+            },
+            "htlc4_usdc": {
+                "type": "EVM HTLC3S (Base)",
+                "direction": "LP → User",
+                "amount": f"{usdc_amount:.2f} USDC",
+                "htlc_id": fs.get("evm_htlc_id", ""),
+                "lock_txhash": fs.get("evm_lock_txhash"),
+                "claim_txhash": fs.get("evm_claim_txhash"),
+                "status": "claimed" if fs.get("evm_claim_txhash") else ("locked" if fs.get("evm_lock_txhash") else "pending"),
             },
         },
         # Rate & PnL
@@ -4886,6 +4968,9 @@ async def flowswap_status(swap_id: str):
             "htlc_outpoint": fs.get("m1_htlc_outpoint", ""),
             "txid": fs.get("m1_htlc_txid"),
             "claim_txid": fs.get("m1_claim_txid"),
+            "pivot_type": fs.get("m1_pivot_type"),
+            "pivot_receipt": fs.get("m1_pivot_receipt"),
+            "covenant_dest": fs.get("m1_covenant_dest"),
         },
         "evm": {
             "htlc_id": fs.get("evm_htlc_id", ""),
@@ -4968,12 +5053,20 @@ async def flowswap_btc_funded(swap_id: str):
             log.info(f"FlowSwap {swap_id}: auto-detected refund address: {sender_address}")
 
     with _flowswap_lock:
+        # Guard: LP lock already launched (race with BTC deposit watcher)
+        if fs.get("_lp_lock_launched"):
+            return {
+                "swap_id": swap_id,
+                "state": fs["state"],
+                "message": "LP lock already in progress",
+            }
         fs["btc_fund_txid"] = utxo["txid"]
         fs["btc_fund_confs"] = utxo.get("confirmations", 0)
         if sender_address:
             fs["user_btc_refund_address"] = sender_address
         fs["state"] = FlowSwapState.BTC_FUNDED.value
         fs["updated_at"] = int(time.time())
+        fs["_lp_lock_launched"] = True  # Prevent duplicate LP lock threads
         _reserve_inventory(swap_id, m1_sats=fs.get("m1_amount_sats", 0),
                            usdc=fs.get("usdc_amount", 0))
         _save_flowswap_db()
@@ -5205,10 +5298,10 @@ async def flowswap_presign(swap_id: str, req: FlowSwapPresignRequest):
 
     # Verify on-chain locks exist before accepting S_user (forward flow)
     if fs.get("direction") != "reverse":
-        if not fs.get("evm_htlc_id") and not fs.get("is_perleg"):
-            raise HTTPException(400, "USDC not locked on EVM — cannot accept presign")
-        if not fs.get("m1_htlc_outpoint") and not fs.get("is_perleg"):
+        if not fs.get("m1_htlc_outpoint"):
             raise HTTPException(400, "M1 not locked on BATHRON — cannot accept presign")
+        if not fs.get("evm_htlc_id") and fs.get("leg") != "BTC/M1":
+            raise HTTPException(400, "USDC not locked on EVM — cannot accept presign")
 
     # Verify SHA256(S_user) == H_user
     computed_hash = hashlib.sha256(bytes.fromhex(req.S_user)).hexdigest()
@@ -5428,13 +5521,14 @@ async def flowswap_presign(swap_id: str, req: FlowSwapPresignRequest):
             elif not fs.get("evm_htlc_id"):
                 log.error(f"FlowSwap {swap_id}: No evm_htlc_id — USDC was never locked, skipping EVM claim")
 
-            # Claim M1 on BATHRON — retry until HTLC is in a block
+            # ── Settlement Pivot: Claim M1 HTLC-2 → creates HTLC-3 via covenant ──
+            # This is MANDATORY for 4-HTLC model. Retry until HTLC is mined.
             m1_claimed = bool(fs.get("m1_claim_txid"))
 
             if not m1_claimed and fs.get("m1_htlc_outpoint"):
                 m1_3s = get_m1_htlc_3s()
                 if m1_3s:
-                    for attempt in range(12):  # up to 2 minutes
+                    for attempt in range(18):  # up to 3 minutes (HTLC must be mined first)
                         try:
                             m1_result = m1_3s.claim(
                                 htlc_outpoint=fs["m1_htlc_outpoint"],
@@ -5444,44 +5538,57 @@ async def flowswap_presign(swap_id: str, req: FlowSwapPresignRequest):
                             )
                             with _flowswap_lock:
                                 fs["m1_claim_txid"] = m1_result.get("txid")
+                                # Track Settlement Pivot metadata (4-HTLC)
+                                pivot_type = m1_result.get("type", "standard")
+                                fs["m1_pivot_type"] = pivot_type
+                                if pivot_type == "pivot":
+                                    fs["m1_pivot_receipt"] = m1_result.get("receipt_outpoint")
+                                    fs["m1_covenant_dest"] = m1_result.get("covenant_dest")
                                 fs["updated_at"] = int(time.time())
                                 _save_flowswap_db()
-                            log.info(f"FlowSwap {swap_id}: M1 claimed, txid={m1_result.get('txid')}")
+                            log.info(f"FlowSwap {swap_id}: M1 Settlement Pivot complete — "
+                                     f"type={pivot_type}, txid={m1_result.get('txid')}")
+                            if pivot_type == "pivot":
+                                log.info(f"  HTLC-3 receipt: {m1_result.get('receipt_outpoint')} "
+                                         f"→ {m1_result.get('covenant_dest')}")
                             m1_claimed = True
                             break
                         except Exception as e:
                             if "not found" in str(e).lower():
-                                log.info(f"FlowSwap {swap_id}: M1 HTLC not in block yet, waiting... ({attempt+1}/12)")
+                                log.info(f"FlowSwap {swap_id}: M1 HTLC not in block yet, waiting... ({attempt+1}/18)")
                             else:
-                                log.error(f"FlowSwap {swap_id}: M1 claim error (attempt {attempt+1}/12): {e}")
+                                log.error(f"FlowSwap {swap_id}: M1 claim error (attempt {attempt+1}/18): {e}")
                             time.sleep(10)
                     if not m1_claimed:
-                        log.error(f"FlowSwap {swap_id}: M1 claim failed after 12 retries — background scheduler will refund via timelock")
+                        log.error(f"FlowSwap {swap_id}: M1 Settlement Pivot failed after 18 retries — watcher will retry")
                 else:
-                    log.error(f"FlowSwap {swap_id}: M1 HTLC3S manager not available — background scheduler will refund via timelock")
+                    log.error(f"FlowSwap {swap_id}: M1 HTLC3S manager not available — watcher will retry")
             elif m1_claimed:
-                log.info(f"FlowSwap {swap_id}: M1 already claimed, skipping")
+                log.info(f"FlowSwap {swap_id}: M1 already claimed (Settlement Pivot done)")
             elif not fs.get("m1_htlc_outpoint"):
-                log.error(f"FlowSwap {swap_id}: No m1_htlc_outpoint — M1 was never locked, skipping M1 claim")
+                log.error(f"FlowSwap {swap_id}: No m1_htlc_outpoint — M1 was never locked")
 
-            # Mark complete only if USDC was delivered to user.
-            # If USDC claim failed, stay in COMPLETING so watcher can retry.
+            # ── Completion gate: BOTH USDC delivery AND M1 Settlement Pivot required ──
+            # 4-HTLC model: swap is not complete until M1 makes the full round-trip.
             with _flowswap_lock:
-                if evm_claimed:
+                if evm_claimed and m1_claimed:
                     fs["state"] = FlowSwapState.COMPLETED.value
                     fs["completed_at"] = int(time.time())
-                    if not m1_claimed:
-                        fs["m1_claim_failed"] = True
                     _release_reservation(swap_id)
+                elif evm_claimed and not m1_claimed:
+                    # USDC delivered to user (good), but M1 pivot pending
+                    # Stay in COMPLETING — watcher will retry M1 claim
+                    fs["m1_claim_failed"] = True
+                    log.warning(f"FlowSwap {swap_id}: USDC delivered but M1 Settlement Pivot pending — staying in COMPLETING")
                 else:
                     fs["evm_claim_failed"] = True
                     if not m1_claimed:
                         fs["m1_claim_failed"] = True
-                    # Stay in COMPLETING — watcher thread will retry EVM claim
                     log.error(f"FlowSwap {swap_id}: USDC NOT delivered — staying in COMPLETING for retry")
                 fs["updated_at"] = int(time.time())
                 _save_flowswap_db()
-            log.info(f"FlowSwap {swap_id}: {'COMPLETED' if evm_claimed else 'COMPLETING (USDC retry needed)'} (evm={evm_claimed}, m1={m1_claimed})")
+            log.info(f"FlowSwap {swap_id}: evm={evm_claimed}, m1_pivot={m1_claimed} → "
+                     f"{'COMPLETED (4-HTLC)' if (evm_claimed and m1_claimed) else 'COMPLETING (retry needed)'}")
 
         except Exception as e:
             log.error(f"FlowSwap {swap_id}: completion error: {e}")
@@ -5492,7 +5599,10 @@ async def flowswap_presign(swap_id: str, req: FlowSwapPresignRequest):
                 _release_reservation(swap_id)
                 _save_flowswap_db()
 
-    fs["state"] = FlowSwapState.COMPLETING.value
+    with _flowswap_lock:
+        fs["state"] = FlowSwapState.COMPLETING.value
+        fs["updated_at"] = int(time.time())
+        _save_flowswap_db()
     threading.Thread(target=_complete_swap, daemon=True).start()
 
     response = {
@@ -5908,11 +6018,16 @@ async def flowswap_btc_claimed(swap_id: str, req: BtcClaimedRequest):
 
     # Store secrets + BTC claim txid
     with _flowswap_lock:
+        # Guard: completion already in progress (race with per-leg watcher)
+        if fs.get("_completing"):
+            log.info(f"FlowSwap {swap_id}: completion already in progress (watcher beat us)")
+            return {"status": "already_completing", "swap_id": swap_id}
         fs["S_user"] = req.S_user
         fs["S_lp1"] = req.S_lp1
         fs["btc_claim_txid"] = req.btc_claim_txid
         fs["state"] = FlowSwapState.BTC_CLAIMED.value
         fs["updated_at"] = int(time.time())
+        fs["_completing"] = True  # Prevent duplicate completion threads
         _save_flowswap_db()
 
     log.info(f"FlowSwap {swap_id}: LP_OUT received BTC claim proof, btc_txid={req.btc_claim_txid[:16]}...")
@@ -9148,6 +9263,9 @@ def _btc_deposit_check_one(swap_id: str, fs_copy: dict, btc_3s):
         if fs_live["state"] not in (FlowSwapState.AWAITING_BTC.value,
                                     FlowSwapState.BTC_FUNDED.value):
             return
+        # Guard: LP lock already launched (race with /btc-funded endpoint)
+        if fs_live.get("_lp_lock_launched"):
+            return
 
         fs_live["btc_fund_txid"] = utxo["txid"]
         fs_live["btc_fund_confs"] = utxo.get("confirmations", 0)
@@ -9155,6 +9273,7 @@ def _btc_deposit_check_one(swap_id: str, fs_copy: dict, btc_3s):
             fs_live["user_btc_refund_address"] = sender_address
         fs_live["state"] = FlowSwapState.BTC_FUNDED.value
         fs_live["updated_at"] = int(time.time())
+        fs_live["_lp_lock_launched"] = True  # Prevent duplicate LP lock threads
         _reserve_inventory(swap_id, m1_sats=fs_live.get("m1_amount_sats", 0),
                            usdc=fs_live.get("usdc_amount", 0))
         _save_flowswap_db()
@@ -9284,12 +9403,17 @@ def _perleg_check_btc_claims():
                 if fs_live.get("state") != FlowSwapState.LP_LOCKED.value:
                     log.info(f"Per-leg watcher: {swap_id} state changed to {fs_live.get('state')}, skipping")
                     continue
+                # Guard: completion already in progress (race with /btc-claimed endpoint)
+                if fs_live.get("_completing"):
+                    log.info(f"Per-leg watcher: {swap_id} completion already in progress, skipping")
+                    continue
                 fs_live["S_user"] = S_user
                 fs_live["S_lp1"] = S_lp1
                 fs_live["btc_claim_txid"] = secrets.get("btc_claim_txid", "")
                 fs_live["state"] = FlowSwapState.BTC_CLAIMED.value
                 fs_live["updated_at"] = int(time.time())
                 fs_live["watcher_detected"] = True  # Mark as watcher-detected
+                fs_live["_completing"] = True  # Prevent duplicate completion threads
                 _save_flowswap_db()
 
             # Launch completion thread (same logic as /btc-claimed endpoint)
@@ -10198,6 +10322,9 @@ def _build_flowswap_status_dict(fs: dict, swap_id: str) -> dict:
             "htlc_outpoint": fs.get("m1_htlc_outpoint", ""),
             "txid": fs.get("m1_htlc_txid"),
             "claim_txid": fs.get("m1_claim_txid"),
+            "pivot_type": fs.get("m1_pivot_type"),
+            "pivot_receipt": fs.get("m1_pivot_receipt"),
+            "covenant_dest": fs.get("m1_covenant_dest"),
         },
         "evm": {
             "htlc_id": fs.get("evm_htlc_id", ""),

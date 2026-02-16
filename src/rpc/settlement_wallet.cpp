@@ -2838,7 +2838,9 @@ static UniValue htlc3s_compute_c3(const JSONRPCRequest& request)
     uint256 hash = ComputeTemplateHash(tx);
 
     UniValue result(UniValue::VOBJ);
-    result.pushKV("template_hash", hash.GetHex());
+    // Use raw byte order (HexStr), NOT GetHex() which reverses endianness.
+    // htlc3s_create parses with ParseHex+memcpy (raw), so output must match.
+    result.pushKV("template_hash", HexStr(Span<const unsigned char>(hash.begin(), hash.size())));
     result.pushKV("output_amount", ValueFromAmount(amount - CTV_FIXED_FEE));
     result.pushKV("fee", ValueFromAmount(CTV_FIXED_FEE));
 

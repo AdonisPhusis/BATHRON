@@ -389,7 +389,7 @@ class BTCHTLC3S:
             try:
                 mempool_txids = self.client._call("getrawmempool")
                 if mempool_txids:
-                    for txid in mempool_txids:
+                    for txid in mempool_txids[:200]:  # Limit to avoid hanging on large mempools
                         try:
                             tx = self.client._call("getrawtransaction", txid, True)
                             if not tx:

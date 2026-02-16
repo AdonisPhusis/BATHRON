@@ -174,6 +174,7 @@ static const CRPCConvertParam vRPCConvertParams[] = {
     { "htlc_create_m1_covenant", 6, "covenant_fee" },
     // HTLC3S operations (BP02-3S FlowSwap)
     { "htlc3s_create", 5, "expiry_blocks" },
+    { "htlc3s_compute_c3", 0, "amount" },
     // BTC SPV verification
     { "verifymerkleproof", 2, "proof" },
     { "verifymerkleproof", 3, "txindex" },

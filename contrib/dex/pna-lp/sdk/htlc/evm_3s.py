@@ -468,7 +468,7 @@ class EVMHTLC3S:
 
                 approve_tx = usdc.functions.approve(
                     Web3.to_checksum_address(self.contract_address),
-                    2**256 - 1  # Max approval
+                    amount_wei  # Exact amount — never unlimited approval
                 ).build_transaction({
                     'from': sender,
                     'nonce': nonce,

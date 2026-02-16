@@ -231,6 +231,39 @@ view_logs() {
 # MAIN
 # =============================================================================
 
+cleanup_stuck() {
+    echo -e "\n${BLUE}=== Cleanup stuck swaps ($LP_NAME @ $TARGET_IP) ===${NC}\n"
+
+    # List stuck swaps via admin endpoint (localhost-only on VPS)
+    echo -e "${YELLOW}Listing stuck swaps...${NC}"
+    STUCK=$($SSH ubuntu@$TARGET_IP "curl -s http://localhost:$SDK_PORT/api/admin/stuck-swaps" 2>/dev/null)
+    COUNT=$(echo "$STUCK" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+
+    if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
+        echo -e "${GREEN}No stuck swaps found${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}Found $COUNT stuck swap(s):${NC}"
+    echo "$STUCK" | python3 -m json.tool
+
+    # Force-fail each stuck swap
+    SWAP_IDS=$(echo "$STUCK" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for s in data.get('stuck_swaps', []):
+    print(s['swap_id'])
+" 2>/dev/null)
+
+    for SID in $SWAP_IDS; do
+        echo -e "${YELLOW}Force-failing $SID...${NC}"
+        RESULT=$($SSH ubuntu@$TARGET_IP "curl -s -X POST http://localhost:$SDK_PORT/api/admin/swap/$SID/force-fail" 2>/dev/null)
+        echo "$RESULT" | python3 -m json.tool 2>/dev/null || echo "$RESULT"
+    done
+
+    echo -e "\n${GREEN}Cleanup complete. Run '$0 status' to verify.${NC}"
+}
+
 case "${1:-deploy}" in
     deploy)  fast_deploy ;;
     start)   start_server ;;
@@ -238,8 +271,9 @@ case "${1:-deploy}" in
     restart) restart_server ;;
     status)  check_status ;;
     logs)    view_logs ;;
+    cleanup) cleanup_stuck ;;
     *)
-        echo "Usage: $0 {deploy|start|stop|restart|status|logs} [lp1|lp2]"
+        echo "Usage: $0 {deploy|start|stop|restart|status|logs|cleanup} [lp1|lp2]"
         echo ""
         echo "  lp1 (default) - OP1 (57.131.33.152)"
         echo "  lp2           - OP2 (57.131.33.214)"
