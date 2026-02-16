@@ -886,6 +886,47 @@ _lp_blacklist: Dict[str, int] = {}  # lp_id → blacklisted_until (unix timestam
 LP_BLACKLIST_THRESHOLD = 10  # Consecutive failures before blacklist
 LP_BLACKLIST_DURATION = 3600  # 1 hour blacklist
 
+# Anti-grief: BTC address blacklist for users who grief (fund then RBF/abandon)
+# Key = BTC sender address, value = {"until": unix_ts, "reason": str, "count": int}
+_btc_grief_blacklist: Dict[str, dict] = {}
+BTC_GRIEF_BLACKLIST_DURATION = 7200   # 2 hours per offense
+BTC_GRIEF_MAX_STRIKES = 2            # Blacklist after 2 grief attempts
+
+
+def _record_btc_grief(btc_address: str, swap_id: str, reason: str):
+    """Record a grief event from a BTC address (RBF, abandon after LP lock).
+    After BTC_GRIEF_MAX_STRIKES, blacklist the address."""
+    if not btc_address:
+        return
+    entry = _btc_grief_blacklist.get(btc_address, {"count": 0, "until": 0, "reason": ""})
+    entry["count"] = entry.get("count", 0) + 1
+    entry["reason"] = reason
+    if entry["count"] >= BTC_GRIEF_MAX_STRIKES:
+        entry["until"] = int(time.time()) + BTC_GRIEF_BLACKLIST_DURATION * entry["count"]
+        log.warning(f"Anti-grief: BTC address {btc_address} blacklisted "
+                    f"(strike {entry['count']}, until +{BTC_GRIEF_BLACKLIST_DURATION * entry['count']}s) "
+                    f"reason={reason} swap={swap_id}")
+    else:
+        log.info(f"Anti-grief: BTC address {btc_address} strike {entry['count']}/{BTC_GRIEF_MAX_STRIKES} "
+                 f"reason={reason} swap={swap_id}")
+    _btc_grief_blacklist[btc_address] = entry
+
+
+def _check_btc_grief_blacklist(btc_address: str):
+    """Check if a BTC address is grief-blacklisted. Raises 403 if so."""
+    if not btc_address:
+        return
+    entry = _btc_grief_blacklist.get(btc_address)
+    if not entry:
+        return
+    until = entry.get("until", 0)
+    if until > int(time.time()):
+        remaining = until - int(time.time())
+        raise HTTPException(403,
+            f"BTC address temporarily blocked (grief protection). "
+            f"Strike {entry['count']}, unblocked in {remaining // 60}min. "
+            f"Reason: {entry.get('reason', 'repeated failed swaps')}")
+
 
 def _compute_lp_reputation() -> dict:
     """Compute reputation stats from flowswap history.
@@ -995,6 +1036,24 @@ def _compute_lp_reputation() -> dict:
 async def get_reputation():
     """Get LP reputation score and stats."""
     return _compute_lp_reputation()
+
+
+@app.get("/api/grief-blacklist")
+async def get_grief_blacklist():
+    """Admin: list grief-blacklisted BTC addresses."""
+    now = int(time.time())
+    result = []
+    for addr, entry in _btc_grief_blacklist.items():
+        active = entry.get("until", 0) > now
+        result.append({
+            "btc_address": addr,
+            "strikes": entry.get("count", 0),
+            "active": active,
+            "until": entry.get("until", 0) if active else None,
+            "remaining_min": max(0, (entry.get("until", 0) - now) // 60) if active else 0,
+            "reason": entry.get("reason", ""),
+        })
+    return {"blacklisted_addresses": result, "total": len(result)}
 
 
 @app.get("/api/assets")
@@ -4646,6 +4705,12 @@ def _do_lp_lock_forward(swap_id: str):
             _save_flowswap_db()
         ws_notify_swap(swap_id)
 
+        # Anti-grief: record BTC address grief if RBF or TX drop detected
+        err_str = str(e).lower()
+        if "rbf" in err_str or "replaced" in err_str or "dropped" in err_str:
+            grief_addr = fs.get("user_btc_refund_address", "")
+            _record_btc_grief(grief_addr, swap_id, f"LP lock failed: {e}")
+
         # M1 rollback: if M1 was locked but USDC failed, start M1 refund in background
         if fs.get("m1_htlc_outpoint") and not fs.get("evm_htlc_id"):
             def _rollback_m1():
@@ -5102,6 +5167,10 @@ async def flowswap_btc_funded(swap_id: str):
     # Anti-grief: check plan not expired
     _check_plan_not_expired(fs, swap_id)
 
+    # Anti-grief: check BTC address not grief-blacklisted
+    if fs.get("user_btc_refund_address"):
+        _check_btc_grief_blacklist(fs["user_btc_refund_address"])
+
     # Verify BTC HTLC is funded with tier-based confirmations
     btc_3s = get_btc_htlc_3s()
     if not btc_3s:
@@ -5128,6 +5197,8 @@ async def flowswap_btc_funded(swap_id: str):
         sender_address = _detect_btc_sender(btc_3s, utxo["txid"])
         if sender_address:
             log.info(f"FlowSwap {swap_id}: auto-detected refund address: {sender_address}")
+            # Anti-grief: check newly detected address against blacklist
+            _check_btc_grief_blacklist(sender_address)
 
     with _flowswap_lock:
         # Guard: LP lock already launched (race with BTC deposit watcher)
