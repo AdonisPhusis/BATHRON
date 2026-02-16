@@ -3138,6 +3138,76 @@ RECOVERY_MAX_RETRIES = 3         # Max auto-retry attempts for USDC/M1 claims
 RECOVERY_RETRY_INTERVAL = 120    # Minimum seconds between retries
 
 
+def _recover_secrets_from_btc_witness(swap_id: str, fs: dict) -> bool:
+    """Recover S_user, S_lp1, S_lp2 from BTC claim TX witness stack.
+
+    After server restart, secrets are lost from memory (never persisted to disk).
+    If the BTC claim TX is on-chain, we can extract them from the witness:
+      witness = [sig, S_lp2, S_lp1, S_user, 0x01, redeem_script]
+
+    Returns True if secrets were recovered and injected into fs.
+    """
+    import hashlib
+
+    btc_claim_txid = fs.get("btc_claim_txid", "")
+    if not btc_claim_txid:
+        return False
+
+    try:
+        btc_3s = get_btc_htlc_3s()
+        if not btc_3s:
+            return False
+
+        # Get raw TX with witness data
+        tx = btc_3s.client.getrawtransaction(btc_claim_txid, True)
+        if not tx:
+            return False
+
+        for vin in tx.get("vin", []):
+            witness = vin.get("txinwitness", [])
+            # 3S claim witness: [sig, S_lp2, S_lp1, S_user, 0x01, script]
+            if len(witness) != 6:
+                continue
+
+            S_lp2_hex = witness[1]
+            S_lp1_hex = witness[2]
+            S_user_hex = witness[3]
+
+            # Validate: each must be 32 bytes (64 hex chars)
+            if not all(len(s) == 64 for s in [S_user_hex, S_lp1_hex, S_lp2_hex]):
+                continue
+
+            # Verify against stored hashlocks
+            def sha256_hex(data_hex):
+                return hashlib.sha256(bytes.fromhex(data_hex)).hexdigest()
+
+            H_user = fs.get("H_user", "")
+            H_lp1 = fs.get("H_lp1", "")
+            H_lp2 = fs.get("H_lp2", "")
+
+            if sha256_hex(S_user_hex) != H_user:
+                continue
+            if sha256_hex(S_lp1_hex) != H_lp1:
+                continue
+            if sha256_hex(S_lp2_hex) != H_lp2:
+                continue
+
+            # All 3 secrets verified — inject into memory
+            fs["S_user"] = S_user_hex
+            fs["S_lp1"] = S_lp1_hex
+            fs["S_lp2"] = S_lp2_hex
+            log.info(
+                f"Recovery: {swap_id} secrets recovered from BTC claim TX "
+                f"{btc_claim_txid[:16]}... (S_user={S_user_hex[:12]}...)"
+            )
+            return True
+
+    except Exception as e:
+        log.warning(f"Recovery: {swap_id} failed to extract secrets from BTC witness: {e}")
+
+    return False
+
+
 def _process_stale_completing():
     """Watchdog: retry stuck USDC/M1 claims, then fail after max retries.
 
@@ -3177,6 +3247,13 @@ def _process_stale_completing():
 
             # Check if claims need retrying (secrets available but claims missing)
             has_secrets = fs.get("S_user") and (fs.get("S_lp1") or fs.get("S_lp2"))
+
+            # P0 FIX: If secrets lost (server restart), recover from BTC claim TX witness
+            if not has_secrets and fs.get("btc_claim_txid"):
+                recovered = _recover_secrets_from_btc_witness(swap_id, fs)
+                if recovered:
+                    has_secrets = True
+
             needs_evm_claim = not fs.get("evm_claim_txhash") and fs.get("evm_htlc_id")
             needs_m1_claim = not fs.get("m1_claim_txid") and fs.get("m1_htlc_outpoint")
             can_retry = has_secrets and (needs_evm_claim or needs_m1_claim)
@@ -5064,6 +5141,13 @@ async def flowswap_btc_funded(swap_id: str):
         fs["btc_fund_confs"] = utxo.get("confirmations", 0)
         if sender_address:
             fs["user_btc_refund_address"] = sender_address
+        # Re-check inventory under lock to prevent concurrent over-reservation
+        avail = _get_available_inventory()
+        usdc_needed = fs.get("usdc_amount", 0)
+        if usdc_needed > 0 and avail.get("usdc", 0) < usdc_needed:
+            raise HTTPException(503,
+                f"Insufficient USDC liquidity at reservation: "
+                f"{avail.get('usdc', 0):.2f} available, {usdc_needed:.2f} needed")
         fs["state"] = FlowSwapState.BTC_FUNDED.value
         fs["updated_at"] = int(time.time())
         fs["_lp_lock_launched"] = True  # Prevent duplicate LP lock threads

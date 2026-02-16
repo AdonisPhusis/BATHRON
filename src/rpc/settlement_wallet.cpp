@@ -37,6 +37,7 @@
 #include "utilmoneystr.h"
 #include "wallet/rpcwallet.h"
 #include "wallet/wallet.h"
+#include "support/cleanse.h"
 
 #include <univalue.h>
 
@@ -2128,6 +2129,13 @@ static UniValue htlc3s_create(const JSONRPCRequest& request)
     CAmount receiptAmount = wtx.tx->vout[receiptVout].nValue;
     CScript receiptScriptPubKey = wtx.tx->vout[receiptVout].scriptPubKey;
 
+    // Validate amount is sufficient for covenant fee
+    if (hasCovenant && receiptAmount <= CTV_FIXED_FEE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            strprintf("Receipt amount %d too small for covenant (min %d)",
+                      receiptAmount, CTV_FIXED_FEE + 1));
+    }
+
     // Get refund key
     CPubKey refundPubKey;
     if (!pwallet->GetKeyFromPool(refundPubKey)) {
@@ -2297,6 +2305,9 @@ static UniValue htlc3s_claim(const JSONRPCRequest& request)
     // Verify preimages
     if (!VerifyPreimages3S(preimage_user, preimage_lp1, preimage_lp2,
                            htlc.hashlock_user, htlc.hashlock_lp1, htlc.hashlock_lp2)) {
+        memory_cleanse(preimage_user.data(), preimage_user.size());
+        memory_cleanse(preimage_lp1.data(), preimage_lp1.size());
+        memory_cleanse(preimage_lp2.data(), preimage_lp2.size());
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Preimage verification failed");
     }
 
@@ -2377,6 +2388,11 @@ static UniValue htlc3s_claim(const JSONRPCRequest& request)
             pnode->PushInventory(inv);
         });
     }
+
+    // Cleanse preimages from memory after use
+    memory_cleanse(preimage_user.data(), preimage_user.size());
+    memory_cleanse(preimage_lp1.data(), preimage_lp1.size());
+    memory_cleanse(preimage_lp2.data(), preimage_lp2.size());
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", hashTx.GetHex());

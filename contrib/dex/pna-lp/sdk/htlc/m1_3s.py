@@ -245,15 +245,24 @@ class M1Htlc3S:
         expected_outpoint = f"{lock_txid}:1"
 
         # Wait for lock TX to be confirmed (mined into a block)
+        # Dynamic backoff: start 5s, grow 1.5x, cap 30s, max 300s total
         import time as _time
-        log.info(f"Waiting for lock TX {lock_txid[:16]}... to be confirmed")
-        for attempt in range(12):  # ~120s max (12 x 10s)
-            _time.sleep(10)
+        MAX_WAIT = 300  # 5 minutes (covers slow block times)
+        log.info(f"Waiting for lock TX {lock_txid[:16]}... to be confirmed (max {MAX_WAIT}s)")
+        start = _time.time()
+        backoff = 5.0
+        attempt = 0
+        while _time.time() - start < MAX_WAIT:
+            _time.sleep(backoff)
+            attempt += 1
             receipts = self.client.list_m1_receipts()
             for r in receipts:
                 if r.get("outpoint") == expected_outpoint:
-                    log.info(f"Lock TX confirmed after {(attempt+1)*10}s")
+                    elapsed = int(_time.time() - start)
+                    log.info(f"Lock TX confirmed after {elapsed}s (attempt {attempt})")
                     return expected_outpoint
-            log.info(f"Waiting... attempt {attempt+1}/12")
+            elapsed = int(_time.time() - start)
+            log.info(f"Waiting... {elapsed}s elapsed (next poll in {backoff:.0f}s)")
+            backoff = min(backoff * 1.5, 30)
 
-        raise RuntimeError(f"Lock TX {lock_txid} not confirmed after 120s")
+        raise RuntimeError(f"Lock TX {lock_txid} not confirmed after {MAX_WAIT}s")
